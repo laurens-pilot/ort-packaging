@@ -16,6 +16,14 @@ on:
         required: true
         type: boolean
         default: true
+      scope:
+        description: Build the full release matrix or probe only iOS
+        required: true
+        type: choice
+        options:
+          - all
+          - ios
+        default: all
 
 permissions:
   contents: read
@@ -28,6 +36,7 @@ env:
 jobs:
   android:
     name: Android ${{ matrix.abi }}
+    if: inputs.scope == 'all'
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     strategy:
@@ -89,6 +98,7 @@ jobs:
 
   android-universal:
     name: Android universal AAR
+    if: inputs.scope == 'all'
     needs: android
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -121,6 +131,7 @@ jobs:
 
   ios:
     name: iOS XCFramework
+    if: inputs.scope == 'all' || inputs.scope == 'ios'
     runs-on: macos-15
     timeout-minutes: 360
     steps:
@@ -168,6 +179,7 @@ jobs:
 
   unix-desktop:
     name: ${{ matrix.target }}
+    if: inputs.scope == 'all'
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 360
     strategy:
@@ -235,6 +247,7 @@ jobs:
 
   windows:
     name: ${{ matrix.target }}
+    if: inputs.scope == 'all'
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 360
     strategy:
@@ -292,6 +305,7 @@ jobs:
 
   release:
     name: Publish release assets
+    if: inputs.scope == 'all'
     needs: [android-universal, ios, unix-desktop, windows]
     runs-on: ubuntu-24.04
     permissions:

@@ -29,8 +29,11 @@ gh workflow run release.yml \
   --repo laurens-pilot/ort-packaging \
   -f tag=ort-1.27.0-webgpu-pilot.1 \
   -f ort_ref=v1.27.0 \
-  -f prerelease=true
+  -f prerelease=true \
+  -f scope=all
 ```
+
+Use `scope=ios` to probe the iOS build after a toolchain or deployment-target change without rebuilding or publishing the full release matrix.
 
 ## Consuming an asset
 
