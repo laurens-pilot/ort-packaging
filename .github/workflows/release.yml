@@ -209,9 +209,6 @@ jobs:
           - target: windows-x64
             runner: windows-2022
             cmake_hash: 807b774fcb12defff8ce869e602fc5b6279d5b7bf7229ebcf3f7490da3f887d516b9c49a00d50f9179e552ed8737d19835a19ef8f366d1ffda1ad6f3352a90c2
-          - target: windows-arm64
-            runner: windows-11-arm
-            cmake_hash: 86937dc89deabe0ff2a08fe198fcfc70764476b865cca4c6dc3bfc7fb9f7d44d4929af919e26e84aaedef17ad01ffb9683e42c39cb38b409100f723bc5ef1cc0
     steps:
       - uses: actions/checkout@v4
       - uses: actions/checkout@v4
@@ -277,7 +274,7 @@ jobs:
           find "$RUNNER_TEMP/artifacts" -type f \
             \( -name '*.aar' -o -name '*.tar.gz' -o -name '*.zip' \) \
             -exec cp {} release-assets/ \;
-          [ "$(find release-assets -type f | wc -l)" -ge 10 ]
+          [ "$(find release-assets -type f | wc -l)" -ge 9 ]
           (cd release-assets && sha256sum * > SHA256SUMS)
 
       - name: Publish immutable GitHub release

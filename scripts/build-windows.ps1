@@ -8,8 +8,8 @@ Get-Content (Join-Path $RepoRoot "versions.env") | ForEach-Object {
 }
 
 $target = if ($args.Count -gt 0) { $args[0] } else { "" }
-if ($target -notin @("windows-x64", "windows-arm64")) {
-    throw "usage: build-windows.ps1 <windows-x64|windows-arm64>"
+if ($target -ne "windows-x64") {
+    throw "usage: build-windows.ps1 windows-x64"
 }
 
 $ortSource = if ($env:ORT_SOURCE_DIR) { $env:ORT_SOURCE_DIR } else { Join-Path $RepoRoot "onnxruntime" }
@@ -20,17 +20,15 @@ $distDir = Join-Path $distRoot $target
 $packageDir = Join-Path $distDir "package"
 
 # Strawberry Perl puts an obsolete patch.exe (2.5.9) on hosted runners' PATH.
-# It asserts while Dawn's native DXC sub-build patches cpuinfo on Windows ARM64.
-# Git for Windows ships a current GNU patch implementation on both runner types.
+# Git for Windows ships a current GNU patch implementation.
 $gitPatchDir = Join-Path $env:ProgramFiles "Git\usr\bin"
 $gitPatch = Join-Path $gitPatchDir "patch.exe"
 if (-not (Test-Path $gitPatch)) { throw "missing Git for Windows patch.exe: $gitPatch" }
 $env:PATH = "$gitPatchDir;$env:PATH"
 
 $hostArch = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()
-$requiredHostArch = if ($target -eq "windows-arm64") { "Arm64" } else { "X64" }
-if ($hostArch -ne $requiredHostArch) {
-    throw "$target must build on a native $requiredHostArch runner; found $hostArch"
+if ($hostArch -ne "X64") {
+    throw "$target must build on a native X64 runner; found $hostArch"
 }
 
 $actualRef = git -C $ortSource describe --tags --exact-match
@@ -50,9 +48,6 @@ $buildArgs = @(
     "--config", "Release",
     "--parallel",
     "--skip_tests",
-    # Native ARM64 MSVC can report benign C4702 unreachable-code warnings
-    # during WebGPU LTO. Use ORT's supported switch instead of patching Dawn.
-    "--compile_no_warning_as_error",
     "--use_vcpkg",
     "--use_webgpu", "shared_lib",
     "--wgsl_template", "static",
@@ -84,9 +79,8 @@ if ($dxcHash -ne $versions.DXC_ARCHIVE_SHA256) {
     throw "DXC archive hash mismatch: expected $($versions.DXC_ARCHIVE_SHA256), found $dxcHash"
 }
 Expand-Archive -Path $dxcArchive -DestinationPath $dxcExtract -Force
-$dxcArch = if ($target -eq "windows-arm64") { "arm64" } else { "x64" }
 foreach ($dependency in @("dxcompiler.dll", "dxil.dll")) {
-    $path = Join-Path $dxcExtract "bin/$dxcArch/$dependency"
+    $path = Join-Path $dxcExtract "bin/x64/$dependency"
     if (-not (Test-Path $path)) { throw "missing WebGPU dependency: $path" }
     Copy-Item $path $packageDir
 }
