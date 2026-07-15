@@ -50,6 +50,9 @@ $buildArgs = @(
     "--config", "Release",
     "--parallel",
     "--skip_tests",
+    # Native ARM64 MSVC can report benign C4702 unreachable-code warnings
+    # during WebGPU LTO. Use ORT's supported switch instead of patching Dawn.
+    "--compile_no_warning_as_error",
     "--use_vcpkg",
     "--use_webgpu", "shared_lib",
     "--wgsl_template", "static",
