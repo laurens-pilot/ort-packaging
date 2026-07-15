@@ -19,6 +19,14 @@ $buildDir = Join-Path $buildRoot $target
 $distDir = Join-Path $distRoot $target
 $packageDir = Join-Path $distDir "package"
 
+# Strawberry Perl puts an obsolete patch.exe (2.5.9) on hosted runners' PATH.
+# It asserts while Dawn's native DXC sub-build patches cpuinfo on Windows ARM64.
+# Git for Windows ships a current GNU patch implementation on both runner types.
+$gitPatchDir = Join-Path $env:ProgramFiles "Git\usr\bin"
+$gitPatch = Join-Path $gitPatchDir "patch.exe"
+if (-not (Test-Path $gitPatch)) { throw "missing Git for Windows patch.exe: $gitPatch" }
+$env:PATH = "$gitPatchDir;$env:PATH"
+
 $actualRef = git -C $ortSource describe --tags --exact-match
 if ($actualRef -ne $versions.ORT_REF) { throw "expected ORT $($versions.ORT_REF), found $actualRef" }
 git -C $ortSource apply --reverse --check (Join-Path $RepoRoot "patches/onnxruntime-public-vcpkg.patch") 2>$null
