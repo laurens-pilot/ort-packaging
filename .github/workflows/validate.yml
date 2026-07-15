@@ -26,10 +26,13 @@ jobs:
           jq --exit-status . config/*.json >/dev/null
           pwsh -NoProfile -Command '$errors = $null; [System.Management.Automation.Language.Parser]::ParseFile("scripts/build-windows.ps1", [ref]$null, [ref]$errors) | Out-Null; if ($errors.Count) { $errors | Format-List; exit 1 }'
 
-      - name: Verify pinned ONNX Runtime patch
+      - name: Verify pinned ONNX Runtime patches
         shell: bash
         run: |
           set -euo pipefail
           git clone --depth 1 --branch "$(. versions.env; printf '%s' "$ORT_REF")" \
             https://github.com/microsoft/onnxruntime.git "$RUNNER_TEMP/onnxruntime"
-          git -C "$RUNNER_TEMP/onnxruntime" apply --check "$GITHUB_WORKSPACE/patches/onnxruntime-public-vcpkg.patch"
+          for patch in "$GITHUB_WORKSPACE"/patches/*.patch; do
+            git -C "$RUNNER_TEMP/onnxruntime" apply --check "$patch"
+            git -C "$RUNNER_TEMP/onnxruntime" apply "$patch"
+          done

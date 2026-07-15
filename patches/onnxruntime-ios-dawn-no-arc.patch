@@ -1,0 +1,17 @@
+diff --git a/cmake/external/onnxruntime_external_deps.cmake b/cmake/external/onnxruntime_external_deps.cmake
+index 0000000..0000000 100644
+--- a/cmake/external/onnxruntime_external_deps.cmake
++++ b/cmake/external/onnxruntime_external_deps.cmake
+@@ -811,5 +811,12 @@ if (onnxruntime_USE_WEBGPU)
+ 
+     onnxruntime_fetchcontent_makeavailable(dawn)
++
++    # The iOS toolchain enables ARC globally, but Dawn's ObjCUtils.mm owns its
++    # CALayer with explicit retain/release. Compile that Dawn target without ARC
++    # until upstream Dawn supports the iOS toolchain's global ARC setting.
++    if (CMAKE_SYSTEM_NAME STREQUAL "iOS" AND TARGET dawn_system_utils)
++      target_compile_options(dawn_system_utils PRIVATE "$<$<COMPILE_LANGUAGE:OBJCXX>:-fno-objc-arc>")
++    endif()
+   endif()
+ 
+   if (NOT CMAKE_SYSTEM_NAME STREQUAL "Emscripten")

@@ -50,7 +50,7 @@ Provider ABI compatibility is not a promise across arbitrary ONNX Runtime versio
 ## Design notes
 
 - Source is the exact upstream ONNX Runtime tag, recorded with its commit in every manifest.
-- A small patch removes Microsoft's internal-only vcpkg asset-cache flag from the upstream Android packaging helper. It does not change runtime code.
+- A small patch removes Microsoft's internal-only vcpkg asset-cache flag from the upstream Android packaging helper. A second packaging patch compiles Dawn's manual-reference-counted Objective-C++ utility without ARC on iOS, counteracting the upstream iOS toolchain's global ARC setting. Neither patch changes runtime behavior.
 - Mobile outputs keep CPU fallback and include XNNPACK; the iOS output also keeps CoreML. This allows a custom package to replace, rather than reduce, the ordinary mobile runtime options.
 - WebGPU uses Dawn: Vulkan on Android/Linux, Metal on Apple platforms, and D3D12 on Windows.
 - The release remains a prerelease until representative-device correctness and performance testing has been completed downstream.

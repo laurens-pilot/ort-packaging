@@ -73,10 +73,13 @@ prepare_ort_source() {
   actual_ref="$(git -C "$ORT_SOURCE_DIR" describe --tags --exact-match 2>/dev/null || true)"
   [ "$actual_ref" = "$ORT_REF" ] || die "expected ORT source at $ORT_REF, found ${actual_ref:-untagged commit}"
 
-  if git -C "$ORT_SOURCE_DIR" apply --reverse --check "$REPO_ROOT/patches/onnxruntime-public-vcpkg.patch" >/dev/null 2>&1; then
-    log "public-vcpkg patch already applied"
-  else
-    git -C "$ORT_SOURCE_DIR" apply --check "$REPO_ROOT/patches/onnxruntime-public-vcpkg.patch"
-    git -C "$ORT_SOURCE_DIR" apply "$REPO_ROOT/patches/onnxruntime-public-vcpkg.patch"
-  fi
+  local patch
+  for patch in "$REPO_ROOT"/patches/*.patch; do
+    if git -C "$ORT_SOURCE_DIR" apply --reverse --check "$patch" >/dev/null 2>&1; then
+      log "$(basename "$patch") already applied"
+    else
+      git -C "$ORT_SOURCE_DIR" apply --check "$patch"
+      git -C "$ORT_SOURCE_DIR" apply "$patch"
+    fi
+  done
 }
