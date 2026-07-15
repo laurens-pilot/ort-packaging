@@ -48,7 +48,7 @@ jobs:
           vcpkg-version: "2025.08.27"
           vcpkg-hash: 9a4b32849792e13bee1d24726f073b3881acae4165206ddf1a6378e44a4ddd05b3ee93f55ff46d8e8873b3cbcd06606212989e248f0bd615a5bf365070074079
           cmake-version: "3.31.8"
-          cmake-hash: 99cc9c63ae49f21253efb5921de2ba84ce136018abf08632c92c060ba91d552e0f6acc214e9ba8123dee0cf6d1cf089ca389e321879fd9d719a60d975bcffcc8
+          cmake-hash: 7939260931098c3f00d2b36de3bee6a0ee3bcae2dba001598c492ed5c82d295c9aa9969654f1ff937fec4d71679541238baaa648c5246f36e14f28f0a62337a0
           add-cmake-to-path: "true"
           disable-terrapin: "true"
 
@@ -176,12 +176,16 @@ jobs:
         include:
           - target: linux-x64
             runner: ubuntu-24.04
+            cmake_hash: 7939260931098c3f00d2b36de3bee6a0ee3bcae2dba001598c492ed5c82d295c9aa9969654f1ff937fec4d71679541238baaa648c5246f36e14f28f0a62337a0
           - target: linux-arm64
             runner: ubuntu-24.04-arm
+            cmake_hash: 8eeb07e966a5340c122979dd2e371708a78adccc85200b22bc7e66028e65513bce5ced6c37fe65aedb94000d970186c5c7562d1ab3dbda911061de46b75345d9
           - target: macos-x64
             runner: macos-15-intel
+            cmake_hash: 99cc9c63ae49f21253efb5921de2ba84ce136018abf08632c92c060ba91d552e0f6acc214e9ba8123dee0cf6d1cf089ca389e321879fd9d719a60d975bcffcc8
           - target: macos-arm64
             runner: macos-15
+            cmake_hash: 99cc9c63ae49f21253efb5921de2ba84ce136018abf08632c92c060ba91d552e0f6acc214e9ba8123dee0cf6d1cf089ca389e321879fd9d719a60d975bcffcc8
     steps:
       - uses: actions/checkout@v4
       - uses: actions/checkout@v4
@@ -195,7 +199,7 @@ jobs:
           vcpkg-version: "2025.08.27"
           vcpkg-hash: 9a4b32849792e13bee1d24726f073b3881acae4165206ddf1a6378e44a4ddd05b3ee93f55ff46d8e8873b3cbcd06606212989e248f0bd615a5bf365070074079
           cmake-version: "3.31.8"
-          cmake-hash: 99cc9c63ae49f21253efb5921de2ba84ce136018abf08632c92c060ba91d552e0f6acc214e9ba8123dee0cf6d1cf089ca389e321879fd9d719a60d975bcffcc8
+          cmake-hash: ${{ matrix.cmake_hash }}
           add-cmake-to-path: "true"
           disable-terrapin: "true"
       - uses: actions/setup-python@v5
@@ -239,8 +243,10 @@ jobs:
         include:
           - target: windows-x64
             runner: windows-2022
+            cmake_hash: 807b774fcb12defff8ce869e602fc5b6279d5b7bf7229ebcf3f7490da3f887d516b9c49a00d50f9179e552ed8737d19835a19ef8f366d1ffda1ad6f3352a90c2
           - target: windows-arm64
             runner: windows-11-arm
+            cmake_hash: 86937dc89deabe0ff2a08fe198fcfc70764476b865cca4c6dc3bfc7fb9f7d44d4929af919e26e84aaedef17ad01ffb9683e42c39cb38b409100f723bc5ef1cc0
     steps:
       - uses: actions/checkout@v4
       - uses: actions/checkout@v4
@@ -254,7 +260,7 @@ jobs:
           vcpkg-version: "2025.08.27"
           vcpkg-hash: 9a4b32849792e13bee1d24726f073b3881acae4165206ddf1a6378e44a4ddd05b3ee93f55ff46d8e8873b3cbcd06606212989e248f0bd615a5bf365070074079
           cmake-version: "3.31.8"
-          cmake-hash: 99cc9c63ae49f21253efb5921de2ba84ce136018abf08632c92c060ba91d552e0f6acc214e9ba8123dee0cf6d1cf089ca389e321879fd9d719a60d975bcffcc8
+          cmake-hash: ${{ matrix.cmake_hash }}
           add-cmake-to-path: "true"
           disable-terrapin: "true"
       - uses: actions/setup-python@v5
