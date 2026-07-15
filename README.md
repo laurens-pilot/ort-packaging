@@ -9,7 +9,7 @@ Runtime and package versions are pinned in [`versions.env`](versions.env); the w
 | Platform | Architectures | Asset model |
 | --- | --- | --- |
 | Android | arm64-v8a, armeabi-v7a, x86_64 | One merged AAR containing a custom full ONNX Runtime core with WebGPU and XNNPACK built in, plus ABI-specific AARs |
-| iOS | arm64 device and arm64 simulator | Static `onnxruntime.xcframework` with WebGPU, CoreML, and XNNPACK built in |
+| iOS 16.3+ | arm64 device and arm64 simulator | Static `onnxruntime.xcframework` with WebGPU, CoreML, and XNNPACK built in |
 | Linux | x64, ARM64 | `libonnxruntime_providers_webgpu.so` plugin archive |
 | macOS | x64, ARM64 | Ad-hoc-signed `libonnxruntime_providers_webgpu.dylib` plugin archive |
 | Windows | x64, ARM64 | `onnxruntime_providers_webgpu.dll`, `dxcompiler.dll`, and `dxil.dll` archive |
@@ -52,6 +52,7 @@ Provider ABI compatibility is not a promise across arbitrary ONNX Runtime versio
 - Source is the exact upstream ONNX Runtime tag, recorded with its commit in every manifest.
 - A small patch removes Microsoft's internal-only vcpkg asset-cache flag from the upstream Android packaging helper. A second packaging patch compiles Dawn's manual-reference-counted Objective-C++ utility without ARC on iOS, counteracting the upstream iOS toolchain's global ARC setting. Neither patch changes runtime behavior.
 - Mobile outputs keep CPU fallback and include XNNPACK; the iOS output also keeps CoreML. This allows a custom package to replace, rather than reduce, the ordinary mobile runtime options.
+- The iOS deployment target is 16.3 because ONNX Runtime WebGPU uses floating-point `std::to_chars`, which Apple's standard library marks available starting in iOS 16.3.
 - WebGPU uses Dawn: Vulkan on Android/Linux, Metal on Apple platforms, and D3D12 on Windows.
 - The release remains a prerelease until representative-device correctness and performance testing has been completed downstream.
 
