@@ -33,7 +33,7 @@ gh workflow run release.yml \
   -f scope=all
 ```
 
-Use `scope=ios` to probe the iOS build after a toolchain or deployment-target change without rebuilding or publishing the full release matrix.
+Use `scope=ios` or `scope=windows` to probe that platform after a toolchain change without rebuilding or publishing the full release matrix.
 
 ## Consuming an asset
 
@@ -56,6 +56,7 @@ Provider ABI compatibility is not a promise across arbitrary ONNX Runtime versio
 - A small patch removes Microsoft's internal-only vcpkg asset-cache flag from the upstream Android packaging helper. A second packaging patch compiles Dawn's manual-reference-counted Objective-C++ utility without ARC on iOS, counteracting the upstream iOS toolchain's global ARC setting. Neither patch changes runtime behavior.
 - Mobile outputs keep CPU fallback and include XNNPACK; the iOS output also keeps CoreML. This allows a custom package to replace, rather than reduce, the ordinary mobile runtime options.
 - The iOS deployment target is 16.3 because ONNX Runtime WebGPU uses floating-point `std::to_chars`, which Apple's standard library marks available starting in iOS 16.3.
+- Windows builds use native x64/ARM64 runners. Their DXC runtime DLLs come from the same checksum-pinned Microsoft DXC release used by ONNX Runtime's official plugin pipeline.
 - WebGPU uses Dawn: Vulkan on Android/Linux, Metal on Apple platforms, and D3D12 on Windows.
 - The release remains a prerelease until representative-device correctness and performance testing has been completed downstream.
 

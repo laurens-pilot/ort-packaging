@@ -23,6 +23,7 @@ on:
         options:
           - all
           - ios
+          - windows
         default: all
 
 permissions:
@@ -247,7 +248,7 @@ jobs:
 
   windows:
     name: ${{ matrix.target }}
-    if: inputs.scope == 'all'
+    if: inputs.scope == 'all' || inputs.scope == 'windows'
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 360
     strategy:

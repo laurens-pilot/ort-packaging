@@ -27,6 +27,12 @@ $gitPatch = Join-Path $gitPatchDir "patch.exe"
 if (-not (Test-Path $gitPatch)) { throw "missing Git for Windows patch.exe: $gitPatch" }
 $env:PATH = "$gitPatchDir;$env:PATH"
 
+$hostArch = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()
+$requiredHostArch = if ($target -eq "windows-arm64") { "Arm64" } else { "X64" }
+if ($hostArch -ne $requiredHostArch) {
+    throw "$target must build on a native $requiredHostArch runner; found $hostArch"
+}
+
 $actualRef = git -C $ortSource describe --tags --exact-match
 if ($actualRef -ne $versions.ORT_REF) { throw "expected ORT $($versions.ORT_REF), found $actualRef" }
 git -C $ortSource apply --reverse --check (Join-Path $RepoRoot "patches/onnxruntime-public-vcpkg.patch") 2>$null
@@ -55,7 +61,6 @@ $buildArgs = @(
     "onnxruntime_ENABLE_DAWN_BACKEND_D3D12=1",
     "onnxruntime_ENABLE_DAWN_BACKEND_VULKAN=0"
 )
-if ($target -eq "windows-arm64") { $buildArgs += "--arm64" }
 python @buildArgs
 if ($LASTEXITCODE -ne 0) { throw "ONNX Runtime build failed" }
 
@@ -63,8 +68,22 @@ $outputDir = Join-Path $buildDir "Release/Release"
 $plugin = Join-Path $outputDir "onnxruntime_providers_webgpu.dll"
 if (-not (Test-Path $plugin)) { throw "missing WebGPU plugin: $plugin" }
 Copy-Item $plugin $packageDir
+
+# Match ONNX Runtime's official plugin packaging pipeline: distribute the
+# checksum-pinned DXC release runtime for the target architecture rather than
+# depending on incidental DLL placement in Dawn's build tree.
+$dxcArchive = Join-Path $buildDir "dxc.zip"
+$dxcExtract = Join-Path $buildDir "dxc"
+$dxcUrl = "https://github.com/microsoft/DirectXShaderCompiler/releases/download/$($versions.DXC_VERSION)/dxc_2025_02_20.zip"
+Invoke-WebRequest -Uri $dxcUrl -OutFile $dxcArchive
+$dxcHash = (Get-FileHash $dxcArchive -Algorithm SHA256).Hash
+if ($dxcHash -ne $versions.DXC_ARCHIVE_SHA256) {
+    throw "DXC archive hash mismatch: expected $($versions.DXC_ARCHIVE_SHA256), found $dxcHash"
+}
+Expand-Archive -Path $dxcArchive -DestinationPath $dxcExtract -Force
+$dxcArch = if ($target -eq "windows-arm64") { "arm64" } else { "x64" }
 foreach ($dependency in @("dxcompiler.dll", "dxil.dll")) {
-    $path = Join-Path $outputDir $dependency
+    $path = Join-Path $dxcExtract "bin/$dxcArch/$dependency"
     if (-not (Test-Path $path)) { throw "missing WebGPU dependency: $path" }
     Copy-Item $path $packageDir
 }
