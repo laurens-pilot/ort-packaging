@@ -11,7 +11,7 @@ Runtime and package versions are pinned in [`versions.env`](versions.env); the w
 | Android | arm64-v8a, armeabi-v7a, x86_64 | One merged AAR containing a custom full ONNX Runtime core with WebGPU and XNNPACK built in, plus ABI-specific AARs |
 | Linux | x64, ARM64 | `libonnxruntime_providers_webgpu.so` plugin archive |
 | macOS | x64, ARM64 | Ad-hoc-signed `libonnxruntime_providers_webgpu.dylib` plugin archive |
-| Windows | x64 | `onnxruntime_providers_webgpu.dll`, `dxcompiler.dll`, and `dxil.dll` archive |
+| Windows | x64, ARM64 | `onnxruntime_providers_webgpu.dll`, `dxcompiler.dll`, and `dxil.dll` archive |
 
 This split is deliberate. ONNX Runtime's mobile packaging paths statically include providers in the custom core package. Its current WebGPU plugin release pipeline covers desktop shared libraries. A mobile asset therefore replaces the ordinary ONNX Runtime mobile package; it is not an add-on that can be placed beside the stock AAR or CocoaPod. Desktop archives are add-on provider libraries and require a compatible ONNX Runtime core.
 
@@ -54,7 +54,7 @@ Provider ABI compatibility is not a promise across arbitrary ONNX Runtime versio
 - Source is the exact upstream ONNX Runtime tag, recorded with its commit in every manifest.
 - A small patch removes Microsoft's internal-only vcpkg asset-cache flag from the upstream Android packaging helper. It does not change runtime behavior.
 - The Android output keeps CPU fallback and includes XNNPACK, allowing the custom package to replace rather than reduce the ordinary Android runtime options.
-- Windows builds use a native x64 runner. Their DXC runtime DLLs come from the same checksum-pinned Microsoft DXC release used by ONNX Runtime's official plugin pipeline.
+- Windows builds use native x64 and ARM64 runners. Their DXC runtime DLLs come from the same checksum-pinned Microsoft DXC release used by ONNX Runtime's official plugin pipeline.
 - WebGPU uses Dawn: Vulkan on Android/Linux, Metal on Apple platforms, and D3D12 on Windows.
 - The release remains a prerelease until representative-device correctness and performance testing has been completed downstream.
 

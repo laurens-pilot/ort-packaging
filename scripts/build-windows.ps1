@@ -8,8 +8,8 @@ Get-Content (Join-Path $RepoRoot "versions.env") | ForEach-Object {
 }
 
 $target = if ($args.Count -gt 0) { $args[0] } else { "" }
-if ($target -ne "windows-x64") {
-    throw "usage: build-windows.ps1 windows-x64"
+if ($target -notin @("windows-x64", "windows-arm64")) {
+    throw "usage: build-windows.ps1 <windows-x64|windows-arm64>"
 }
 
 $ortSource = if ($env:ORT_SOURCE_DIR) { $env:ORT_SOURCE_DIR } else { Join-Path $RepoRoot "onnxruntime" }
@@ -27,8 +27,9 @@ if (-not (Test-Path $gitPatch)) { throw "missing Git for Windows patch.exe: $git
 $env:PATH = "$gitPatchDir;$env:PATH"
 
 $hostArch = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()
-if ($hostArch -ne "X64") {
-    throw "$target must build on a native X64 runner; found $hostArch"
+$requiredHostArch = if ($target -eq "windows-arm64") { "Arm64" } else { "X64" }
+if ($hostArch -ne $requiredHostArch) {
+    throw "$target must build on a native $requiredHostArch runner; found $hostArch"
 }
 
 $actualRef = git -C $ortSource describe --tags --exact-match
@@ -59,6 +60,11 @@ $buildArgs = @(
     "onnxruntime_ENABLE_DAWN_BACKEND_D3D12=1",
     "onnxruntime_ENABLE_DAWN_BACKEND_VULKAN=0"
 )
+if ($target -eq "windows-arm64") {
+    # Native ARM64 MSVC reports benign C4702 unreachable-code warnings during
+    # WebGPU LTO. Use ORT's supported switch instead of patching Dawn sources.
+    $buildArgs += "--compile_no_warning_as_error"
+}
 python @buildArgs
 if ($LASTEXITCODE -ne 0) { throw "ONNX Runtime build failed" }
 
@@ -79,8 +85,9 @@ if ($dxcHash -ne $versions.DXC_ARCHIVE_SHA256) {
     throw "DXC archive hash mismatch: expected $($versions.DXC_ARCHIVE_SHA256), found $dxcHash"
 }
 Expand-Archive -Path $dxcArchive -DestinationPath $dxcExtract -Force
+$dxcArch = if ($target -eq "windows-arm64") { "arm64" } else { "x64" }
 foreach ($dependency in @("dxcompiler.dll", "dxil.dll")) {
-    $path = Join-Path $dxcExtract "bin/x64/$dependency"
+    $path = Join-Path $dxcExtract "bin/$dxcArch/$dependency"
     if (-not (Test-Path $path)) { throw "missing WebGPU dependency: $path" }
     Copy-Item $path $packageDir
 }
