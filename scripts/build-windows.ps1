@@ -111,5 +111,6 @@ $assetName = "onnxruntime-webgpu-$target-$($versions.ORT_VERSION)-pilot.$($versi
 $asset = Join-Path $distDir $assetName
 Compress-Archive -Path (Join-Path $packageDir "*") -DestinationPath $asset
 $hash = (Get-FileHash $asset -Algorithm SHA256).Hash.ToLowerInvariant()
-"$hash  $assetName" | Set-Content "$asset.sha256"
+$utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+[System.IO.File]::WriteAllText("$asset.sha256", "$hash  $assetName`n", $utf8NoBom)
 Write-Host "created $asset"
