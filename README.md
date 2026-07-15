@@ -2,7 +2,7 @@
 
 Reproducible, GitHub-hosted builds of ONNX Runtime's native WebGPU Execution Provider for Android, iOS, Linux, macOS, and Windows. The repository intentionally keeps compilation off developer machines and publishes immutable, checksummed GitHub Release assets.
 
-The build is pinned in [`versions.env`](versions.env). Releases use a separate packaging revision so a script or toolchain correction does not pretend to be a new ONNX Runtime version.
+Runtime and package versions are pinned in [`versions.env`](versions.env); the workflow separately pins Microsoft's ONNX Runtime build-tool action, CMake, and vcpkg. Releases use a separate packaging revision so a script or toolchain correction does not pretend to be a new ONNX Runtime version.
 
 ## What is packaged
 
