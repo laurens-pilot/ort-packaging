@@ -21,7 +21,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          shellcheck scripts/*.sh
+          shellcheck -x scripts/*.sh
           for script in scripts/*.sh; do bash -n "$script"; done
           jq --exit-status . config/*.json >/dev/null
           pwsh -NoProfile -Command '$errors = $null; [System.Management.Automation.Language.Parser]::ParseFile("scripts/build-windows.ps1", [ref]$null, [ref]$errors) | Out-Null; if ($errors.Count) { $errors | Format-List; exit 1 }'
