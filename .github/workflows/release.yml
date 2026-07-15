@@ -1,0 +1,306 @@
+name: Build and release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Immutable release tag
+        required: true
+        default: ort-1.27.0-webgpu-pilot.1
+      ort_ref:
+        description: Pinned ONNX Runtime tag
+        required: true
+        default: v1.27.0
+      prerelease:
+        description: Mark the GitHub release as a prerelease
+        required: true
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+env:
+  ORT_SOURCE_DIR: ${{ github.workspace }}/onnxruntime
+  BUILD_ROOT: ${{ runner.temp }}/ort-packaging-build
+  DIST_ROOT: ${{ runner.temp }}/ort-packaging-dist
+
+jobs:
+  android:
+    name: Android ${{ matrix.abi }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        abi: [arm64-v8a, armeabi-v7a, x86_64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: microsoft/onnxruntime
+          ref: ${{ inputs.ort_ref }}
+          path: onnxruntime
+          fetch-depth: 1
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: android-actions/setup-android@v3
+
+      - name: Install pinned Android and host tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          source versions.env
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build unzip zip
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platforms;android-$ANDROID_TARGET_SDK" "ndk;$ANDROID_NDK_VERSION"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/$ANDROID_NDK_VERSION" >> "$GITHUB_ENV"
+          python -m pip install --disable-pip-version-check \
+            "cmake==$CMAKE_VERSION" "ninja==$NINJA_VERSION" \
+            -r onnxruntime/tools/ci_build/github/linux/docker/scripts/requirements.txt
+
+      - name: Build AAR
+        run: scripts/build-android.sh "${{ matrix.abi }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-${{ matrix.abi }}
+          path: ${{ env.DIST_ROOT }}/android-${{ matrix.abi }}/*
+          if-no-files-found: error
+          retention-days: 14
+
+  android-universal:
+    name: Android universal AAR
+    needs: android
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: microsoft/onnxruntime
+          ref: ${{ inputs.ort_ref }}
+          path: onnxruntime
+          fetch-depth: 1
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: android-*
+          path: ${{ runner.temp }}/android-aars
+
+      - name: Merge ABI-specific AARs
+        shell: bash
+        run: |
+          mapfile -t aars < <(find "$RUNNER_TEMP/android-aars" -type f -name '*.aar' | sort)
+          [ "${#aars[@]}" -eq 3 ]
+          scripts/merge-android-aars.sh "$DIST_ROOT/android" "${aars[@]}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-universal
+          path: ${{ env.DIST_ROOT }}/android/*
+          if-no-files-found: error
+          retention-days: 14
+
+  ios:
+    name: iOS XCFramework
+    runs-on: macos-15
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: microsoft/onnxruntime
+          ref: ${{ inputs.ort_ref }}
+          path: onnxruntime
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install pinned host tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          source versions.env
+          sudo xcode-select --switch /Applications/Xcode_16.4.app/Contents/Developer
+          python -m pip install --disable-pip-version-check \
+            "cmake==$CMAKE_VERSION" "ninja==$NINJA_VERSION" \
+            -r onnxruntime/tools/ci_build/github/linux/docker/scripts/requirements.txt
+          xcodebuild -version
+
+      - name: Build XCFramework
+        run: scripts/build-ios.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios
+          path: ${{ env.DIST_ROOT }}/ios/*
+          if-no-files-found: error
+          retention-days: 14
+
+  unix-desktop:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux-x64
+            runner: ubuntu-24.04
+          - target: linux-arm64
+            runner: ubuntu-24.04-arm
+          - target: macos-x64
+            runner: macos-15-intel
+          - target: macos-arm64
+            runner: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: microsoft/onnxruntime
+          ref: ${{ inputs.ort_ref }}
+          path: onnxruntime
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Linux host tools
+        if: startsWith(matrix.target, 'linux-')
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libvulkan-dev ninja-build patchelf
+
+      - name: Install pinned Python build tools
+        shell: bash
+        run: |
+          source versions.env
+          python -m pip install --disable-pip-version-check \
+            "cmake==$CMAKE_VERSION" "ninja==$NINJA_VERSION" \
+            -r onnxruntime/tools/ci_build/github/linux/docker/scripts/requirements.txt
+
+      - name: Build plugin
+        run: scripts/build-desktop.sh "${{ matrix.target }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}
+          path: ${{ env.DIST_ROOT }}/${{ matrix.target }}/*
+          if-no-files-found: error
+          retention-days: 14
+
+  windows:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: windows-x64
+            runner: windows-2022
+          - target: windows-arm64
+            runner: windows-11-arm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: microsoft/onnxruntime
+          ref: ${{ inputs.ort_ref }}
+          path: onnxruntime
+          fetch-depth: 1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install pinned build tools
+        shell: pwsh
+        run: |
+          Get-Content versions.env | ForEach-Object {
+            if ($_ -match '^([^#=]+)=(.*)$') { Set-Item "env:$($Matches[1])" $Matches[2] }
+          }
+          python -m pip install --disable-pip-version-check `
+            "cmake==$env:CMAKE_VERSION" "ninja==$env:NINJA_VERSION" `
+            -r onnxruntime/tools/ci_build/github/windows/python/requirements.txt
+
+      - name: Build plugin
+        shell: pwsh
+        run: scripts/build-windows.ps1 "${{ matrix.target }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}
+          path: ${{ env.DIST_ROOT }}/${{ matrix.target }}/*
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    name: Publish release assets
+    needs: [android-universal, ios, unix-desktop, windows]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: "*"
+          path: ${{ runner.temp }}/artifacts
+
+      - name: Collect and verify assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir release-assets
+          find "$RUNNER_TEMP/artifacts" -type f \
+            \( -name '*.aar' -o -name '*.tar.gz' -o -name '*.zip' \) \
+            -exec cp {} release-assets/ \;
+          [ "$(find release-assets -type f | wc -l)" -ge 10 ]
+          (cd release-assets && sha256sum * > SHA256SUMS)
+
+      - name: Publish immutable GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          PRERELEASE: ${{ inputs.prerelease }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          prerelease_flag=()
+          if [ "$PRERELEASE" = "true" ]; then prerelease_flag+=(--prerelease); fi
+          notes=$(mktemp)
+          cat >"$notes" <<EOF
+          ONNX Runtime WebGPU packaging build for ${{ inputs.ort_ref }}.
+
+          Android and iOS assets contain a custom ONNX Runtime core with WebGPU built in. Desktop assets contain the WebGPU plugin shared library; Windows archives also include DXC runtime DLLs. See the repository README for compatibility and integration details.
+          EOF
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" release-assets/* --clobber
+          else
+            gh release create "$RELEASE_TAG" release-assets/* \
+              --target "$GITHUB_SHA" \
+              --title "$RELEASE_TAG" \
+              --notes-file "$notes" \
+              "${prerelease_flag[@]}"
+          fi

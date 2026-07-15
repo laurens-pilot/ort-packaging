@@ -1,0 +1,35 @@
+name: Validate
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  scripts:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install validators
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends jq shellcheck
+
+      - name: Validate shell and configuration files
+        shell: bash
+        run: |
+          set -euo pipefail
+          shellcheck scripts/*.sh
+          for script in scripts/*.sh; do bash -n "$script"; done
+          jq --exit-status . config/*.json >/dev/null
+          pwsh -NoProfile -Command '$errors = $null; [System.Management.Automation.Language.Parser]::ParseFile("scripts/build-windows.ps1", [ref]$null, [ref]$errors) | Out-Null; if ($errors.Count) { $errors | Format-List; exit 1 }'
+
+      - name: Verify pinned ONNX Runtime patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch "$(. versions.env; printf '%s' "$ORT_REF")" \
+            https://github.com/microsoft/onnxruntime.git "$RUNNER_TEMP/onnxruntime"
+          git -C "$RUNNER_TEMP/onnxruntime" apply --check "$GITHUB_WORKSPACE/patches/onnxruntime-public-vcpkg.patch"

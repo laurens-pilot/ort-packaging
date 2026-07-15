@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export REPO_ROOT="${REPO_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
+
+set -a
+# shellcheck disable=SC1091
+source "$REPO_ROOT/versions.env"
+set +a
+
+export ORT_SOURCE_DIR="${ORT_SOURCE_DIR:-$REPO_ROOT/onnxruntime}"
+export BUILD_ROOT="${BUILD_ROOT:-$REPO_ROOT/build}"
+export DIST_ROOT="${DIST_ROOT:-$REPO_ROOT/dist}"
+export JOBS="${JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)}"
+
+log() {
+  printf '[%s] %s\n' "$(date +%H:%M:%S)" "$*" >&2
+}
+
+die() {
+  printf 'error: %s\n' "$*" >&2
+  exit 1
+}
+
+require_cmd() {
+  command -v "$1" >/dev/null 2>&1 || die "missing command: $1"
+}
+
+require_file() {
+  [ -f "$1" ] || die "missing file: $1"
+}
+
+require_dir() {
+  [ -d "$1" ] || die "missing directory: $1"
+}
+
+sha256_file() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print $1}'
+  else
+    shasum -a 256 "$1" | awk '{print $1}'
+  fi
+}
+
+write_checksum() {
+  local file="$1"
+  printf '%s  %s\n' "$(sha256_file "$file")" "$(basename "$file")" >"$file.sha256"
+}
+
+ort_commit() {
+  git -C "$ORT_SOURCE_DIR" rev-parse HEAD
+}
+
+write_manifest() {
+  local path="$1"
+  local target="$2"
+  local linkage="$3"
+  {
+    printf 'ORT_REF=%s\n' "$ORT_REF"
+    printf 'ORT_VERSION=%s\n' "$ORT_VERSION"
+    printf 'ORT_COMMIT=%s\n' "$(ort_commit)"
+    printf 'PACKAGE_REVISION=%s\n' "$PACKAGE_REVISION"
+    printf 'TARGET=%s\n' "$target"
+    printf 'WEBGPU_LINKAGE=%s\n' "$linkage"
+    printf 'BUILD_CONFIG=Release\n'
+  } >"$path"
+}
+
+prepare_ort_source() {
+  require_dir "$ORT_SOURCE_DIR/.git"
+  local actual_ref
+  actual_ref="$(git -C "$ORT_SOURCE_DIR" describe --tags --exact-match 2>/dev/null || true)"
+  [ "$actual_ref" = "$ORT_REF" ] || die "expected ORT source at $ORT_REF, found ${actual_ref:-untagged commit}"
+
+  if git -C "$ORT_SOURCE_DIR" apply --reverse --check "$REPO_ROOT/patches/onnxruntime-public-vcpkg.patch" >/dev/null 2>&1; then
+    log "public-vcpkg patch already applied"
+  else
+    git -C "$ORT_SOURCE_DIR" apply --check "$REPO_ROOT/patches/onnxruntime-public-vcpkg.patch"
+    git -C "$ORT_SOURCE_DIR" apply "$REPO_ROOT/patches/onnxruntime-public-vcpkg.patch"
+  fi
+}

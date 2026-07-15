@@ -1,0 +1,18 @@
+{
+  "build_abis": ["arm64-v8a"],
+  "android_min_sdk_version": 26,
+  "android_target_sdk_version": 35,
+  "build_params": [
+    "--android",
+    "--parallel",
+    "--cmake_generator=Ninja",
+    "--build_java",
+    "--build_shared_lib",
+    "--use_webgpu",
+    "--use_xnnpack",
+    "--skip_tests",
+    "--disable_rtti",
+    "--enable_lto",
+    "--cmake_extra_defines=onnxruntime_BUILD_UNIT_TESTS=OFF"
+  ]
+}
