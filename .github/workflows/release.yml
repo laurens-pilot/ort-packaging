@@ -22,8 +22,8 @@ permissions:
 
 env:
   ORT_SOURCE_DIR: ${{ github.workspace }}/onnxruntime
-  BUILD_ROOT: ${{ runner.temp }}/ort-packaging-build
-  DIST_ROOT: ${{ runner.temp }}/ort-packaging-dist
+  BUILD_ROOT: ${{ github.workspace }}/.build
+  DIST_ROOT: ${{ github.workspace }}/.dist
 
 jobs:
   android:
