@@ -2,6 +2,8 @@
 
 Builds pinned, self-contained ONNX Runtime WebGPU packages for Android and desktop without depending on Microsoft-provided ONNX Runtime binaries.
 
+Current build: **ONNX Runtime 1.27.0** from upstream tag `v1.27.0`. Version and toolchain pins are defined in [`versions.env`](versions.env).
+
 ## What This Produces
 
 | Platform | Architectures | Contents |
