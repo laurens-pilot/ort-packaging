@@ -75,7 +75,7 @@ actual = {
 }
 expected = {
     ("ios", None, ("arm64",)),
-    ("ios", "simulator", ("arm64", "x86_64")),
+    ("ios", "simulator", ("arm64",)),
 }
 if actual != expected:
     raise SystemExit(f"unexpected XCFramework slices: {actual}")
@@ -89,9 +89,7 @@ done < <(find "$xcframework" -type f -name onnxruntime -print0)
 for binary in "${framework_binaries[@]}"; do
   archs="$(lipo -archs "$binary")"
   case "$binary" in
-    *simulator*)
-      [ "$archs" = "x86_64 arm64" ] || [ "$archs" = "arm64 x86_64" ] || die "unexpected simulator architectures: $archs"
-      ;;
+    *simulator*) [ "$archs" = "arm64" ] || die "unexpected simulator architectures: $archs" ;;
     *) [ "$archs" = "arm64" ] || die "unexpected device architectures: $archs" ;;
   esac
 

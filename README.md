@@ -9,7 +9,7 @@ Current build: **ONNX Runtime 1.27.0** from upstream tag `v1.27.0`. Version and 
 | Platform | Architectures | Contents |
 | --- | --- | --- |
 | Android | arm64-v8a, armeabi-v7a, x86_64 | ABI-specific and universal AARs with ORT, Java/JNI, WebGPU, XNNPACK, and CPU fallback |
-| iOS | device ARM64; simulator ARM64 and Intel x64 | Static XCFramework with ORT, CoreML, and CPU fallback; deployment target 15.1 |
+| iOS | device and simulator ARM64 | Static XCFramework with ORT, CoreML, and CPU fallback; deployment target 15.1 |
 | Linux | x64, ARM64 | ORT shared runtime and WebGPU plugin |
 | macOS | Intel x64, Apple Silicon ARM64 | ORT shared runtime and WebGPU plugin |
 | Windows | x64, ARM64 | ORT runtime, WebGPU plugin, and required DXC DLLs |
@@ -30,7 +30,7 @@ Generated files are written to `build/` and `dist/`, which are ignored by Git.
 
 ## CI And Releases
 
-The release workflow builds all targets on native GitHub-hosted runners. Android ABIs are built separately and then merged into a universal AAR. iOS is distributed as a static XCFramework with device and simulator slices.
+The release workflow builds all targets on native GitHub-hosted runners. Android ABIs are built separately and then merged into a universal AAR. iOS is distributed as a static XCFramework for Apple Silicon development hosts and ARM64 devices; Intel iOS Simulator hosts are not supported.
 
 ```sh
 gh workflow run release.yml \
