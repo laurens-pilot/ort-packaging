@@ -19,19 +19,23 @@ rm -rf "$build_dir" "$dist_dir"
 mkdir -p "$build_dir" "$dist_dir/package"
 
 cmake_defines=("onnxruntime_BUILD_UNIT_TESTS=OFF")
+lto_args=("--enable_lto")
 case "$target" in
   linux-*)
     cmake_defines+=("onnxruntime_ENABLE_DAWN_BACKEND_VULKAN=1")
+    if [ "$target" = "linux-arm64" ]; then
+      lto_args=()
+    fi
     plugin="$build_dir/Release/libonnxruntime_providers_webgpu.so"
     core="$build_dir/Release/libonnxruntime.so.$ORT_VERSION"
     ;;
   macos-x64)
-    cmake_defines+=("CMAKE_OSX_ARCHITECTURES=x86_64" "CMAKE_OSX_DEPLOYMENT_TARGET=$MACOS_MIN_VERSION")
+    cmake_defines+=("CMAKE_OSX_ARCHITECTURES=x86_64" "CMAKE_OSX_DEPLOYMENT_TARGET=$MACOS_MIN_VERSION" "VCPKG_OSX_DEPLOYMENT_TARGET=$MACOS_MIN_VERSION")
     plugin="$build_dir/Release/libonnxruntime_providers_webgpu.dylib"
     core="$build_dir/Release/libonnxruntime.$ORT_VERSION.dylib"
     ;;
   macos-arm64)
-    cmake_defines+=("CMAKE_OSX_ARCHITECTURES=arm64" "CMAKE_OSX_DEPLOYMENT_TARGET=$MACOS_MIN_VERSION")
+    cmake_defines+=("CMAKE_OSX_ARCHITECTURES=arm64" "CMAKE_OSX_DEPLOYMENT_TARGET=$MACOS_MIN_VERSION" "VCPKG_OSX_DEPLOYMENT_TARGET=$MACOS_MIN_VERSION")
     plugin="$build_dir/Release/libonnxruntime_providers_webgpu.dylib"
     core="$build_dir/Release/libonnxruntime.$ORT_VERSION.dylib"
     ;;
@@ -48,7 +52,7 @@ python3 "$ORT_SOURCE_DIR/tools/ci_build/build.py" \
   --use_webgpu shared_lib \
   --wgsl_template static \
   --disable_rtti \
-  --enable_lto \
+  "${lto_args[@]}" \
   --cmake_generator Ninja \
   --cmake_extra_defines "${cmake_defines[@]}"
 

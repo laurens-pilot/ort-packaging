@@ -11,7 +11,7 @@ Current build: **ONNX Runtime 1.27.0** from upstream tag `v1.27.0`. Version and 
 | Android | arm64-v8a, armeabi-v7a, x86_64 | ABI-specific and universal AARs with ORT, Java/JNI, WebGPU, XNNPACK, and CPU fallback |
 | iOS | ARM64 | Static XCFramework with ORT, CoreML, and CPU fallback; deployment target 15.1 |
 | Linux | x64, ARM64 | ORT shared runtime and WebGPU plugin; Ubuntu 22.04-compatible ABI |
-| macOS | Intel x64, Apple Silicon ARM64 | ORT shared runtime and WebGPU plugin; deployment target 12.0 |
+| macOS | Intel x64, Apple Silicon ARM64 | ORT shared runtime and WebGPU plugin; deployment target 13.3 |
 | Windows | x64, ARM64 | ORT runtime, WebGPU plugin, and required DXC DLLs |
 
 The Android AAR packages WebGPU into the runtime and replaces `onnxruntime-android`. The iOS artifact replaces the official C XCFramework and requires linking `Foundation`, weak-linking `CoreML`, and linking `c++`. Desktop archives contain a matching ORT core and WebGPU plugin built from the same source revision. Register the plugin and select its device through ORT's V2 device API or automatic device selection; the legacy built-in WebGPU registration API does not load plugin EPs. Windows applications must provide the standard Microsoft Visual C++ 2015–2022 runtime, as required by Microsoft's official ORT binaries too.
