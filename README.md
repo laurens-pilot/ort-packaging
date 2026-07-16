@@ -9,7 +9,7 @@ Current build: **ONNX Runtime 1.27.0** from upstream tag `v1.27.0`. Version and 
 | Platform | Architectures | Contents |
 | --- | --- | --- |
 | Android | arm64-v8a, armeabi-v7a, x86_64 | ABI-specific and universal AARs with ORT, Java/JNI, WebGPU, XNNPACK, and CPU fallback |
-| iOS | device and simulator ARM64 | Static XCFramework with ORT, CoreML, and CPU fallback; deployment target 15.1 |
+| iOS | ARM64 | Static XCFramework with ORT, CoreML, and CPU fallback; deployment target 15.1 |
 | Linux | x64, ARM64 | ORT shared runtime and WebGPU plugin |
 | macOS | Intel x64, Apple Silicon ARM64 | ORT shared runtime and WebGPU plugin |
 | Windows | x64, ARM64 | ORT runtime, WebGPU plugin, and required DXC DLLs |
