@@ -20,11 +20,13 @@ mkdir -p "$build_dir" "$dist_dir/package"
 
 cmake_defines=("onnxruntime_BUILD_UNIT_TESTS=OFF")
 lto_args=("--enable_lto")
+warning_args=()
 case "$target" in
   linux-*)
     cmake_defines+=("onnxruntime_ENABLE_DAWN_BACKEND_VULKAN=1")
     if [ "$target" = "linux-arm64" ]; then
       lto_args=()
+      warning_args=("--compile_no_warning_as_error")
     fi
     plugin="$build_dir/Release/libonnxruntime_providers_webgpu.so"
     core="$build_dir/Release/libonnxruntime.so.$ORT_VERSION"
@@ -53,6 +55,7 @@ python3 "$ORT_SOURCE_DIR/tools/ci_build/build.py" \
   --wgsl_template static \
   --disable_rtti \
   "${lto_args[@]}" \
+  "${warning_args[@]}" \
   --cmake_generator Ninja \
   --cmake_extra_defines "${cmake_defines[@]}"
 
