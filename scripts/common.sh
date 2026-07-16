@@ -45,7 +45,7 @@ sha256_file() {
 
 write_checksum() {
   local file="$1"
-  printf '%s  %s\n' "$(sha256_file "$file")" "$(basename "$file")" >"$file.sha256"
+  printf '%s\n' "$(sha256_file "$file")" >"$file.sha256"
 }
 
 ort_commit() {
@@ -62,6 +62,7 @@ write_manifest() {
     printf 'ORT_COMMIT=%s\n' "$(ort_commit)"
     printf 'PACKAGE_REVISION=%s\n' "$PACKAGE_REVISION"
     printf 'TARGET=%s\n' "$target"
+    printf 'ORT_CORE_INCLUDED=1\n'
     printf 'WEBGPU_LINKAGE=%s\n' "$linkage"
     printf 'BUILD_CONFIG=Release\n'
   } >"$path"

@@ -6,7 +6,7 @@ on:
       tag:
         description: Immutable release tag
         required: true
-        default: ort-1.27.0-webgpu-pilot.1
+        default: ort-1.27.0-webgpu-pilot.2
       ort_ref:
         description: Pinned ONNX Runtime tag
         required: true
@@ -274,11 +274,36 @@ jobs:
         run: |
           set -euo pipefail
           mkdir release-assets
-          find "$RUNNER_TEMP/artifacts" -type f \
-            \( -name '*.aar' -o -name '*.tar.gz' -o -name '*.zip' \) \
-            -exec cp {} release-assets/ \;
-          [ "$(find release-assets -type f | wc -l)" -ge 10 ]
-          (cd release-assets && sha256sum * > SHA256SUMS)
+          mapfile -d '' binaries < <(
+            find "$RUNNER_TEMP/artifacts" -type f \
+              \( -name '*.aar' -o -name '*.tar.gz' -o -name '*.zip' \) \
+              -print0 | sort -z
+          )
+          [ "${#binaries[@]}" -eq 10 ]
+
+          for binary in "${binaries[@]}"; do
+            checksum="$binary.sha256"
+            manifest="$binary.manifest.env"
+            [ -f "$checksum" ]
+            [ -f "$manifest" ]
+
+            expected="$(tr -d '[:space:]' <"$checksum")"
+            [[ "$expected" =~ ^[0-9a-f]{64}$ ]]
+            actual="$(sha256sum "$binary" | awk '{print $1}')"
+            [ "$actual" = "$expected" ]
+            grep -Fqx "ORT_REF=${{ inputs.ort_ref }}" "$manifest"
+            grep -Fqx 'ORT_CORE_INCLUDED=1' "$manifest"
+
+            cp "$binary" "$checksum" "$manifest" release-assets/
+          done
+          [ "$(find release-assets -maxdepth 1 -type f | wc -l)" -eq 30 ]
+
+          (
+            cd release-assets
+            mapfile -t binaries < <(find . -maxdepth 1 -type f \
+              \( -name '*.aar' -o -name '*.tar.gz' -o -name '*.zip' \) | sort)
+            sha256sum "${binaries[@]}" > SHA256SUMS
+          )
 
       - name: Publish immutable GitHub release
         env:
@@ -294,14 +319,14 @@ jobs:
           cat >"$notes" <<EOF
           ONNX Runtime WebGPU packaging build for ${{ inputs.ort_ref }}.
 
-          Android assets contain a custom ONNX Runtime core with WebGPU built in. Desktop assets contain the WebGPU plugin shared library; Windows archives also include DXC runtime DLLs. See the repository README for compatibility and integration details.
+          Android assets contain a custom ONNX Runtime core with WebGPU built in. Desktop runtime bundles contain a matching custom ONNX Runtime core and WebGPU plugin; Windows archives also include DXC runtime DLLs. Every binary has a verified SHA-256 sidecar and build manifest.
           EOF
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            gh release upload "$RELEASE_TAG" release-assets/* --clobber
-          else
-            gh release create "$RELEASE_TAG" release-assets/* \
-              --target "$GITHUB_SHA" \
-              --title "$RELEASE_TAG" \
-              --notes-file "$notes" \
-              "${prerelease_flag[@]}"
+            echo "Release $RELEASE_TAG already exists; immutable releases cannot be overwritten." >&2
+            exit 1
           fi
+          gh release create "$RELEASE_TAG" release-assets/* \
+            --target "$GITHUB_SHA" \
+            --title "$RELEASE_TAG" \
+            --notes-file "$notes" \
+            "${prerelease_flag[@]}"

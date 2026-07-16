@@ -49,6 +49,7 @@ $buildArgs = @(
     "--config", "Release",
     "--parallel",
     "--skip_tests",
+    "--build_shared_lib",
     "--use_vcpkg",
     "--use_webgpu", "shared_lib",
     "--wgsl_template", "static",
@@ -70,8 +71,12 @@ if ($LASTEXITCODE -ne 0) { throw "ONNX Runtime build failed" }
 
 $outputDir = Join-Path $buildDir "Release/Release"
 $plugin = Join-Path $outputDir "onnxruntime_providers_webgpu.dll"
+$core = Join-Path $outputDir "onnxruntime.dll"
+$providersShared = Join-Path $outputDir "onnxruntime_providers_shared.dll"
 if (-not (Test-Path $plugin)) { throw "missing WebGPU plugin: $plugin" }
-Copy-Item $plugin $packageDir
+if (-not (Test-Path $core)) { throw "missing ONNX Runtime core: $core" }
+if (-not (Test-Path $providersShared)) { throw "missing shared provider runtime: $providersShared" }
+Copy-Item $plugin, $core, $providersShared $packageDir
 
 # Match ONNX Runtime's official plugin packaging pipeline: distribute the
 # checksum-pinned DXC release runtime for the target architecture rather than
@@ -97,20 +102,24 @@ if (Test-Path (Join-Path $ortSource "ThirdPartyNotices.txt")) {
 }
 
 $commit = git -C $ortSource rev-parse HEAD
-@"
-ORT_REF=$($versions.ORT_REF)
-ORT_VERSION=$($versions.ORT_VERSION)
-ORT_COMMIT=$commit
-PACKAGE_REVISION=$($versions.PACKAGE_REVISION)
-TARGET=$target
-WEBGPU_LINKAGE=plugin-shared
-BUILD_CONFIG=Release
-"@ | Set-Content (Join-Path $packageDir "manifest.env") -NoNewline
+$utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+$manifestText = (@(
+    "ORT_REF=$($versions.ORT_REF)",
+    "ORT_VERSION=$($versions.ORT_VERSION)",
+    "ORT_COMMIT=$commit",
+    "PACKAGE_REVISION=$($versions.PACKAGE_REVISION)",
+    "TARGET=$target",
+    "ORT_CORE_INCLUDED=1",
+    "WEBGPU_LINKAGE=plugin-shared",
+    "BUILD_CONFIG=Release"
+) -join "`n") + "`n"
+$packageManifest = Join-Path $packageDir "manifest.env"
+[System.IO.File]::WriteAllText($packageManifest, $manifestText, $utf8NoBom)
 
 $assetName = "onnxruntime-webgpu-$target-$($versions.ORT_VERSION)-pilot.$($versions.PACKAGE_REVISION).zip"
 $asset = Join-Path $distDir $assetName
 Compress-Archive -Path (Join-Path $packageDir "*") -DestinationPath $asset
 $hash = (Get-FileHash $asset -Algorithm SHA256).Hash.ToLowerInvariant()
-$utf8NoBom = [System.Text.UTF8Encoding]::new($false)
-[System.IO.File]::WriteAllText("$asset.sha256", "$hash  $assetName`n", $utf8NoBom)
+[System.IO.File]::WriteAllText("$asset.sha256", "$hash`n", $utf8NoBom)
+[System.IO.File]::WriteAllText("$asset.manifest.env", $manifestText, $utf8NoBom)
 Write-Host "created $asset"
