@@ -19,15 +19,9 @@ rm -rf "$build_dir" "$dist_dir"
 mkdir -p "$build_dir" "$dist_dir/package"
 
 cmake_defines=("onnxruntime_BUILD_UNIT_TESTS=OFF")
-lto_args=("--enable_lto")
-warning_args=()
 case "$target" in
   linux-*)
     cmake_defines+=("onnxruntime_ENABLE_DAWN_BACKEND_VULKAN=1")
-    if [ "$target" = "linux-arm64" ]; then
-      lto_args=()
-      warning_args=("--compile_no_warning_as_error")
-    fi
     plugin="$build_dir/Release/libonnxruntime_providers_webgpu.so"
     core="$build_dir/Release/libonnxruntime.so.$ORT_VERSION"
     ;;
@@ -44,20 +38,28 @@ case "$target" in
 esac
 
 log "building WebGPU plugin for $target"
-python3 "$ORT_SOURCE_DIR/tools/ci_build/build.py" \
-  --build_dir "$build_dir" \
-  --config Release \
-  --parallel "$JOBS" \
-  --skip_tests \
-  --build_shared_lib \
-  --use_vcpkg \
-  --use_webgpu shared_lib \
-  --wgsl_template static \
-  --disable_rtti \
-  "${lto_args[@]}" \
-  "${warning_args[@]}" \
-  --cmake_generator Ninja \
+build_args=(
+  "$ORT_SOURCE_DIR/tools/ci_build/build.py"
+  --build_dir "$build_dir"
+  --config Release
+  --parallel "$JOBS"
+  --skip_tests
+  --build_shared_lib
+  --use_vcpkg
+  --use_webgpu shared_lib
+  --wgsl_template static
+  --disable_rtti
+)
+if [ "$target" = "linux-arm64" ]; then
+  build_args+=(--compile_no_warning_as_error)
+else
+  build_args+=(--enable_lto)
+fi
+build_args+=(
+  --cmake_generator Ninja
   --cmake_extra_defines "${cmake_defines[@]}"
+)
+python3 "${build_args[@]}"
 
 require_file "$plugin"
 require_file "$core"
