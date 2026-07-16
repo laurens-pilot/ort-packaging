@@ -218,8 +218,12 @@ jobs:
         if: startsWith(matrix.target, 'linux-')
         shell: bash
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libvulkan-dev ninja-build patchelf
+          if [ -f /etc/apt/sources.list ]; then
+            sudo sed -i 's|http://ports.ubuntu.com|https://ports.ubuntu.com|g' /etc/apt/sources.list
+          fi
+          sudo apt-get -o Acquire::ForceIPv4=true -o Acquire::Retries=5 update
+          sudo apt-get -o Acquire::ForceIPv4=true -o Acquire::Retries=5 install -y --no-install-recommends \
+            libvulkan-dev ninja-build patchelf
 
       - name: Install pinned Python build tools
         shell: bash
