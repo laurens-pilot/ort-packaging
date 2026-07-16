@@ -45,7 +45,7 @@ done
 asset="$output_dir/onnxruntime-webgpu-android-$ORT_VERSION-pilot.$PACKAGE_REVISION.aar"
 (cd "$work_dir/base" && zip -q -r "$asset" .)
 write_checksum "$asset"
-write_manifest "$asset.manifest.env" "android-universal" "built-in"
+write_manifest "$asset.manifest.env" "android-universal" "built-in" "WebGPU,XNNPACK,CPU"
 
 for abi in arm64-v8a armeabi-v7a x86_64; do
   unzip -l "$asset" | grep -q "jni/$abi/libonnxruntime.so" || die "merged AAR is missing $abi"

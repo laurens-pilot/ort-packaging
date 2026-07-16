@@ -77,7 +77,7 @@ esac
 
 cp "$ORT_SOURCE_DIR/LICENSE" "$dist_dir/package/ONNXRUNTIME-LICENSE"
 [ -f "$ORT_SOURCE_DIR/ThirdPartyNotices.txt" ] && cp "$ORT_SOURCE_DIR/ThirdPartyNotices.txt" "$dist_dir/package/"
-write_manifest "$dist_dir/package/manifest.env" "$target" "plugin-shared"
+write_manifest "$dist_dir/package/manifest.env" "$target" "plugin-shared" "WebGPU,CPU"
 
 if [[ "$target" == macos-* ]]; then
   expected_arch="${target#macos-}"

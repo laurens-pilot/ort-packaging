@@ -38,7 +38,7 @@ require_file "$aar"
 asset="$dist_dir/onnxruntime-webgpu-android-$abi-$ORT_VERSION-pilot.$PACKAGE_REVISION.aar"
 cp "$aar" "$asset"
 write_checksum "$asset"
-write_manifest "$asset.manifest.env" "android-$abi" "built-in"
+write_manifest "$asset.manifest.env" "android-$abi" "built-in" "WebGPU,XNNPACK,CPU"
 
 unzip -l "$asset" | grep -q "jni/$abi/libonnxruntime.so" || die "AAR is missing libonnxruntime.so for $abi"
 unzip -l "$asset" | grep -q "jni/$abi/libonnxruntime4j_jni.so" || die "AAR is missing JNI bridge for $abi"

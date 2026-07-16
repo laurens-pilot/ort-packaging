@@ -1,6 +1,6 @@
-# ONNX Runtime WebGPU Packaging
+# Custom ONNX Runtime Packaging
 
-Builds pinned, self-contained ONNX Runtime WebGPU packages for Android and desktop without depending on Microsoft-provided ONNX Runtime binaries.
+Builds pinned, self-contained ONNX Runtime packages for Android, iOS, and desktop without depending on Microsoft-provided binaries.
 
 Current build: **ONNX Runtime 1.27.0** from upstream tag `v1.27.0`. Version and toolchain pins are defined in [`versions.env`](versions.env).
 
@@ -9,20 +9,19 @@ Current build: **ONNX Runtime 1.27.0** from upstream tag `v1.27.0`. Version and 
 | Platform | Architectures | Contents |
 | --- | --- | --- |
 | Android | arm64-v8a, armeabi-v7a, x86_64 | ABI-specific and universal AARs with ORT, Java/JNI, WebGPU, XNNPACK, and CPU fallback |
+| iOS | device ARM64; simulator ARM64 and Intel x64 | Static XCFramework with ORT, CoreML, and CPU fallback; deployment target 15.1 |
 | Linux | x64, ARM64 | ORT shared runtime and WebGPU plugin |
 | macOS | Intel x64, Apple Silicon ARM64 | ORT shared runtime and WebGPU plugin |
 | Windows | x64, ARM64 | ORT runtime, WebGPU plugin, and required DXC DLLs |
 
-iOS is intentionally excluded; use the official ONNX Runtime package with CoreML there.
-
-The Android AAR packages WebGPU into the runtime and replaces `onnxruntime-android`. Desktop archives contain a matching ORT core and WebGPU plugin built from the same source revision. The desktop plugin must be registered before creating WebGPU sessions.
+The Android AAR packages WebGPU into the runtime and replaces `onnxruntime-android`. The iOS artifact replaces the official C XCFramework and requires linking `CoreML` and `c++`. Desktop archives contain a matching ORT core and WebGPU plugin built from the same source revision; register the plugin before creating WebGPU sessions.
 
 Do not mix these packages with another ONNX Runtime build.
 
 ## Repository Layout
 
 - `versions.env`: ONNX Runtime and toolchain pins
-- `config/`: Android build configuration
+- `config/`: Android and iOS build configurations
 - `scripts/`: platform build and packaging entrypoints
 - `patches/`: reviewable upstream build-system patches
 - `.github/workflows/release.yml`: native build and release matrix
@@ -31,12 +30,12 @@ Generated files are written to `build/` and `dist/`, which are ignored by Git.
 
 ## CI And Releases
 
-The release workflow builds all targets on native GitHub-hosted runners. Android ABIs are built separately and then merged into a universal AAR.
+The release workflow builds all targets on native GitHub-hosted runners. Android ABIs are built separately and then merged into a universal AAR. iOS is distributed as a static XCFramework with device and simulator slices.
 
 ```sh
 gh workflow run release.yml \
   --repo laurens-pilot/ort-packaging \
-  -f tag=ort-1.27.0-webgpu-pilot.2 \
+  -f tag=ort-1.27.0-webgpu-pilot.3 \
   -f ort_ref=v1.27.0 \
   -f prerelease=true \
   -f scope=all
@@ -58,8 +57,8 @@ The release also includes `SHA256SUMS`. CI verifies all checksums and manifests 
 Example:
 
 ```sh
-tag=ort-1.27.0-webgpu-pilot.2
-asset=onnxruntime-webgpu-android-1.27.0-pilot.2.aar
+tag=ort-1.27.0-webgpu-pilot.3
+asset=onnxruntime-webgpu-android-1.27.0-pilot.3.aar
 base=https://github.com/laurens-pilot/ort-packaging/releases/download/$tag
 
 curl -fL -o "$asset" "$base/$asset"

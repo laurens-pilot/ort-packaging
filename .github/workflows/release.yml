@@ -6,7 +6,7 @@ on:
       tag:
         description: Immutable release tag
         required: true
-        default: ort-1.27.0-webgpu-pilot.2
+        default: ort-1.27.0-webgpu-pilot.3
       ort_ref:
         description: Pinned ONNX Runtime tag
         required: true
@@ -126,6 +126,47 @@ jobs:
         with:
           name: android-universal
           path: ${{ env.DIST_ROOT }}/android/*
+          if-no-files-found: error
+          retention-days: 14
+
+  ios:
+    name: iOS CoreML XCFramework
+    if: inputs.scope == 'all'
+    runs-on: macos-15
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: microsoft/onnxruntime
+          ref: ${{ inputs.ort_ref }}
+          path: onnxruntime
+          fetch-depth: 1
+
+      - uses: microsoft/onnxruntime-github-actions/setup-build-tools@v0.0.9
+        with:
+          vcpkg-version: "2025.08.27"
+          vcpkg-hash: 9a4b32849792e13bee1d24726f073b3881acae4165206ddf1a6378e44a4ddd05b3ee93f55ff46d8e8873b3cbcd06606212989e248f0bd615a5bf365070074079
+          cmake-version: "3.31.8"
+          cmake-hash: 99cc9c63ae49f21253efb5921de2ba84ce136018abf08632c92c060ba91d552e0f6acc214e9ba8123dee0cf6d1cf089ca389e321879fd9d719a60d975bcffcc8
+          add-cmake-to-path: "true"
+          disable-terrapin: "true"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Apple packaging requirements
+        run: |
+          python -m pip install --disable-pip-version-check \
+            -r onnxruntime/tools/ci_build/github/apple/ios_packaging/requirements.txt
+
+      - name: Build CoreML XCFramework
+        run: scripts/build-ios.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios
+          path: ${{ env.DIST_ROOT }}/ios/*
           if-no-files-found: error
           retention-days: 14
 
@@ -258,7 +299,7 @@ jobs:
   release:
     name: Publish release assets
     if: inputs.scope == 'all'
-    needs: [android-universal, unix-desktop, windows]
+    needs: [android-universal, ios, unix-desktop, windows]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -279,7 +320,7 @@ jobs:
               \( -name '*.aar' -o -name '*.tar.gz' -o -name '*.zip' \) \
               -print0 | sort -z
           )
-          [ "${#binaries[@]}" -eq 10 ]
+          [ "${#binaries[@]}" -eq 11 ]
 
           for binary in "${binaries[@]}"; do
             checksum="$binary.sha256"
@@ -296,7 +337,7 @@ jobs:
 
             cp "$binary" "$checksum" "$manifest" release-assets/
           done
-          [ "$(find release-assets -maxdepth 1 -type f | wc -l)" -eq 30 ]
+          [ "$(find release-assets -maxdepth 1 -type f | wc -l)" -eq 33 ]
 
           (
             cd release-assets
@@ -317,9 +358,9 @@ jobs:
           if [ "$PRERELEASE" = "true" ]; then prerelease_flag+=(--prerelease); fi
           notes=$(mktemp)
           cat >"$notes" <<EOF
-          ONNX Runtime WebGPU packaging build for ${{ inputs.ort_ref }}.
+          Custom ONNX Runtime packaging build for ${{ inputs.ort_ref }}.
 
-          Android assets contain a custom ONNX Runtime core with WebGPU built in. Desktop runtime bundles contain a matching custom ONNX Runtime core and WebGPU plugin; Windows archives also include DXC runtime DLLs. Every binary has a verified SHA-256 sidecar and build manifest.
+          Android assets contain a custom ONNX Runtime core with WebGPU and XNNPACK built in. Desktop runtime bundles contain a matching custom ONNX Runtime core and WebGPU plugin; Windows archives also include DXC runtime DLLs. The iOS XCFramework contains a static ONNX Runtime core with CoreML and CPU support for iOS 15.1 and later. Every binary has a verified SHA-256 sidecar and build manifest.
           EOF
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             echo "Release $RELEASE_TAG already exists; immutable releases cannot be overwritten." >&2

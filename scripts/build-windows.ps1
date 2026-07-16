@@ -111,6 +111,7 @@ $manifestText = (@(
     "TARGET=$target",
     "ORT_CORE_INCLUDED=1",
     "WEBGPU_LINKAGE=plugin-shared",
+    "EXECUTION_PROVIDERS=WebGPU,CPU",
     "BUILD_CONFIG=Release"
 ) -join "`n") + "`n"
 $packageManifest = Join-Path $packageDir "manifest.env"

@@ -56,6 +56,7 @@ write_manifest() {
   local path="$1"
   local target="$2"
   local linkage="$3"
+  local providers="$4"
   {
     printf 'ORT_REF=%s\n' "$ORT_REF"
     printf 'ORT_VERSION=%s\n' "$ORT_VERSION"
@@ -64,6 +65,7 @@ write_manifest() {
     printf 'TARGET=%s\n' "$target"
     printf 'ORT_CORE_INCLUDED=1\n'
     printf 'WEBGPU_LINKAGE=%s\n' "$linkage"
+    printf 'EXECUTION_PROVIDERS=%s\n' "$providers"
     printf 'BUILD_CONFIG=Release\n'
   } >"$path"
 }
