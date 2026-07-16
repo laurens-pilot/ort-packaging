@@ -6,7 +6,7 @@ on:
       tag:
         description: Immutable release tag
         required: true
-        default: ort-1.27.0-webgpu-pilot.4
+        default: ort-1.27.0-webgpu-pilot.5
       ort_ref:
         description: Pinned ONNX Runtime tag
         required: true

@@ -26,16 +26,22 @@ case "$target" in
     core="$build_dir/Release/libonnxruntime.so.$ORT_VERSION"
     ;;
   macos-x64)
-    cmake_defines+=("CMAKE_OSX_ARCHITECTURES=x86_64" "CMAKE_OSX_DEPLOYMENT_TARGET=$MACOS_MIN_VERSION" "VCPKG_OSX_DEPLOYMENT_TARGET=$MACOS_MIN_VERSION")
+    cmake_defines+=("CMAKE_OSX_ARCHITECTURES=x86_64" "CMAKE_OSX_DEPLOYMENT_TARGET=$MACOS_MIN_VERSION")
     plugin="$build_dir/Release/libonnxruntime_providers_webgpu.dylib"
     core="$build_dir/Release/libonnxruntime.$ORT_VERSION.dylib"
     ;;
   macos-arm64)
-    cmake_defines+=("CMAKE_OSX_ARCHITECTURES=arm64" "CMAKE_OSX_DEPLOYMENT_TARGET=$MACOS_MIN_VERSION" "VCPKG_OSX_DEPLOYMENT_TARGET=$MACOS_MIN_VERSION")
+    cmake_defines+=("CMAKE_OSX_ARCHITECTURES=arm64" "CMAKE_OSX_DEPLOYMENT_TARGET=$MACOS_MIN_VERSION")
     plugin="$build_dir/Release/libonnxruntime_providers_webgpu.dylib"
     core="$build_dir/Release/libonnxruntime.$ORT_VERSION.dylib"
     ;;
 esac
+
+if [[ "$target" == macos-* ]]; then
+  # ORT's build.py reads this when generating its vcpkg overlay triplets. A
+  # top-level -DVCPKG_OSX_DEPLOYMENT_TARGET does not configure vcpkg ports.
+  export MACOSX_DEPLOYMENT_TARGET="$MACOS_MIN_VERSION"
+fi
 
 log "building WebGPU plugin for $target"
 build_args=(
@@ -59,7 +65,20 @@ build_args+=(
   --cmake_generator Ninja
   --cmake_extra_defines "${cmake_defines[@]}"
 )
-python3 "${build_args[@]}"
+build_log="$build_dir/build.log"
+python3 "${build_args[@]}" 2>&1 | tee "$build_log"
+
+if [[ "$target" == macos-* ]]; then
+  if grep -Fq "built for newer 'macOS' version" "$build_log"; then
+    die "one or more macOS dependencies target a newer version than $MACOS_MIN_VERSION"
+  fi
+
+  triplet_arch="${target#macos-}"
+  generated_triplet="$build_dir/Release/nortti/$triplet_arch-osx.cmake"
+  require_file "$generated_triplet"
+  grep -Fqx "set(VCPKG_OSX_DEPLOYMENT_TARGET \"$MACOS_MIN_VERSION\")" "$generated_triplet" ||
+    die "generated vcpkg triplet does not target macOS $MACOS_MIN_VERSION"
+fi
 
 require_file "$plugin"
 require_file "$core"

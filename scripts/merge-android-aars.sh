@@ -50,4 +50,6 @@ write_manifest "$asset.manifest.env" "android-universal" "built-in" "WebGPU,XNNP
 for abi in arm64-v8a armeabi-v7a x86_64; do
   unzip -l "$asset" | grep -q "jni/$abi/libonnxruntime.so" || die "merged AAR is missing $abi"
 done
+unzip -l "$asset" | grep -q 'META-INF/ONNXRUNTIME-LICENSE' || die "merged AAR is missing the ONNX Runtime license"
+unzip -l "$asset" | grep -q 'META-INF/ThirdPartyNotices.txt' || die "merged AAR is missing third-party notices"
 log "created $asset"

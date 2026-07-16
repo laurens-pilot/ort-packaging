@@ -8,7 +8,7 @@ Current build: **ONNX Runtime 1.27.0** from upstream tag `v1.27.0`. Version and 
 
 | Platform | Architectures | Contents |
 | --- | --- | --- |
-| Android | arm64-v8a, armeabi-v7a, x86_64 | ABI-specific and universal AARs with ORT, Java/JNI, WebGPU, XNNPACK, and CPU fallback |
+| Android | arm64-v8a, armeabi-v7a, x86_64 | API 24+ ABI-specific and universal AARs with ORT, Java/JNI, WebGPU, XNNPACK, and CPU fallback |
 | iOS | ARM64 | Static XCFramework with ORT, CoreML, and CPU fallback; deployment target 15.1 |
 | Linux | x64, ARM64 | ORT shared runtime and WebGPU plugin; Ubuntu 22.04-compatible ABI |
 | macOS | Intel x64, Apple Silicon ARM64 | ORT shared runtime and WebGPU plugin; deployment target 13.3 |
@@ -35,7 +35,7 @@ The release workflow builds all targets on native GitHub-hosted runners. Android
 ```sh
 gh workflow run release.yml \
   --repo laurens-pilot/ort-packaging \
-  -f tag=ort-1.27.0-webgpu-pilot.4 \
+  -f tag=ort-1.27.0-webgpu-pilot.5 \
   -f ort_ref=v1.27.0 \
   -f prerelease=true \
   -f scope=all
@@ -52,13 +52,13 @@ Every binary asset includes:
 - a `.sha256` checksum;
 - a `.manifest.env` file identifying the ORT source and target.
 
-The release also includes `SHA256SUMS`. CI verifies all checksums and manifests before publishing.
+The release also includes `SHA256SUMS`. CI verifies all checksums and manifests before publishing. Binary archives include the ONNX Runtime license and third-party notices; Android AARs store them under `META-INF/`.
 
 Example:
 
 ```sh
-tag=ort-1.27.0-webgpu-pilot.4
-asset=onnxruntime-webgpu-android-1.27.0-pilot.4.aar
+tag=ort-1.27.0-webgpu-pilot.5
+asset=onnxruntime-webgpu-android-1.27.0-pilot.5.aar
 base=https://github.com/laurens-pilot/ort-packaging/releases/download/$tag
 
 curl -fL -o "$asset" "$base/$asset"

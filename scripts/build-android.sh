@@ -11,10 +11,29 @@ case "$abi" in
   *) die "usage: $0 <arm64-v8a|armeabi-v7a|x86_64>" ;;
 esac
 
+require_cmd cmp
 require_cmd python3
+require_cmd unzip
+require_cmd zip
 require_file "$REPO_ROOT/config/android-webgpu.json"
 require_dir "${ANDROID_HOME:-}"
 require_dir "${ANDROID_NDK_HOME:-}"
+
+python3 - "$REPO_ROOT/config/android-webgpu.json" "$ANDROID_MIN_SDK" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as settings_file:
+    settings = json.load(settings_file)
+
+actual = settings.get("android_min_sdk_version")
+expected = int(sys.argv[2])
+if actual != expected:
+    raise SystemExit(
+        f"Android build configuration uses minSdk {actual}; expected {expected} from versions.env"
+    )
+PY
+
 prepare_ort_source
 
 build_dir="$BUILD_ROOT/android-$abi"
@@ -35,11 +54,27 @@ python3 "$ORT_SOURCE_DIR/tools/ci_build/github/android/build_aar_package.py" \
 
 aar="$(find "$build_dir/aar_out/Release" -type f -name '*.aar' -print -quit)"
 require_file "$aar"
+require_file "$ORT_SOURCE_DIR/LICENSE"
+require_file "$ORT_SOURCE_DIR/ThirdPartyNotices.txt"
 asset="$dist_dir/onnxruntime-webgpu-android-$abi-$ORT_VERSION-pilot.$PACKAGE_REVISION.aar"
 cp "$aar" "$asset"
+
+notice_dir="$build_dir/package-notices/META-INF"
+mkdir -p "$notice_dir"
+cp "$ORT_SOURCE_DIR/LICENSE" "$notice_dir/ONNXRUNTIME-LICENSE"
+cp "$ORT_SOURCE_DIR/ThirdPartyNotices.txt" "$notice_dir/ThirdPartyNotices.txt"
+(
+  cd "$build_dir/package-notices"
+  zip -q "$asset" META-INF/ONNXRUNTIME-LICENSE META-INF/ThirdPartyNotices.txt
+)
+
 write_checksum "$asset"
 write_manifest "$asset.manifest.env" "android-$abi" "built-in" "WebGPU,XNNPACK,CPU"
 
 unzip -l "$asset" | grep -q "jni/$abi/libonnxruntime.so" || die "AAR is missing libonnxruntime.so for $abi"
 unzip -l "$asset" | grep -q "jni/$abi/libonnxruntime4j_jni.so" || die "AAR is missing JNI bridge for $abi"
+cmp "$ORT_SOURCE_DIR/LICENSE" <(unzip -p "$asset" META-INF/ONNXRUNTIME-LICENSE) ||
+  die "AAR has an invalid ONNX Runtime license"
+cmp "$ORT_SOURCE_DIR/ThirdPartyNotices.txt" <(unzip -p "$asset" META-INF/ThirdPartyNotices.txt) ||
+  die "AAR has invalid third-party notices"
 log "created $asset"
