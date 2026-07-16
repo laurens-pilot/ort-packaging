@@ -10,11 +10,11 @@ Current build: **ONNX Runtime 1.27.0** from upstream tag `v1.27.0`. Version and 
 | --- | --- | --- |
 | Android | arm64-v8a, armeabi-v7a, x86_64 | ABI-specific and universal AARs with ORT, Java/JNI, WebGPU, XNNPACK, and CPU fallback |
 | iOS | ARM64 | Static XCFramework with ORT, CoreML, and CPU fallback; deployment target 15.1 |
-| Linux | x64, ARM64 | ORT shared runtime and WebGPU plugin |
-| macOS | Intel x64, Apple Silicon ARM64 | ORT shared runtime and WebGPU plugin |
+| Linux | x64, ARM64 | ORT shared runtime and WebGPU plugin; Ubuntu 22.04-compatible ABI |
+| macOS | Intel x64, Apple Silicon ARM64 | ORT shared runtime and WebGPU plugin; deployment target 12.0 |
 | Windows | x64, ARM64 | ORT runtime, WebGPU plugin, and required DXC DLLs |
 
-The Android AAR packages WebGPU into the runtime and replaces `onnxruntime-android`. The iOS artifact replaces the official C XCFramework and requires linking `CoreML` and `c++`. Desktop archives contain a matching ORT core and WebGPU plugin built from the same source revision; register the plugin before creating WebGPU sessions.
+The Android AAR packages WebGPU into the runtime and replaces `onnxruntime-android`. The iOS artifact replaces the official C XCFramework and requires linking `Foundation`, weak-linking `CoreML`, and linking `c++`. Desktop archives contain a matching ORT core and WebGPU plugin built from the same source revision. Register the plugin and select its device through ORT's V2 device API or automatic device selection; the legacy built-in WebGPU registration API does not load plugin EPs. Windows applications must provide the standard Microsoft Visual C++ 2015–2022 runtime, as required by Microsoft's official ORT binaries too.
 
 Do not mix these packages with another ONNX Runtime build.
 
@@ -35,7 +35,7 @@ The release workflow builds all targets on native GitHub-hosted runners. Android
 ```sh
 gh workflow run release.yml \
   --repo laurens-pilot/ort-packaging \
-  -f tag=ort-1.27.0-webgpu-pilot.3 \
+  -f tag=ort-1.27.0-webgpu-pilot.4 \
   -f ort_ref=v1.27.0 \
   -f prerelease=true \
   -f scope=all
@@ -57,8 +57,8 @@ The release also includes `SHA256SUMS`. CI verifies all checksums and manifests 
 Example:
 
 ```sh
-tag=ort-1.27.0-webgpu-pilot.3
-asset=onnxruntime-webgpu-android-1.27.0-pilot.3.aar
+tag=ort-1.27.0-webgpu-pilot.4
+asset=onnxruntime-webgpu-android-1.27.0-pilot.4.aar
 base=https://github.com/laurens-pilot/ort-packaging/releases/download/$tag
 
 curl -fL -o "$asset" "$base/$asset"

@@ -89,11 +89,28 @@ if [[ "$target" == macos-* ]]; then
   grep -q '_OrtGetApiBase' < <(nm -gU "$core") || die "ORT core does not export OrtGetApiBase"
   grep -q '_CreateEpFactories' < <(nm -gU "$plugin") || die "WebGPU plugin does not export CreateEpFactories"
   grep -q '_ReleaseEpFactory' < <(nm -gU "$plugin") || die "WebGPU plugin does not export ReleaseEpFactory"
+
+  while IFS= read -r -d '' library; do
+    actual_min="$(otool -l "$library" | awk '$1 == "minos" { print $2; exit }')"
+    [ "$actual_min" = "$MACOS_MIN_VERSION" ] ||
+      die "unexpected macOS deployment target for $library: expected $MACOS_MIN_VERSION, found ${actual_min:-unknown}"
+  done < <(find "$dist_dir/package" -type f -name '*.dylib' -print0)
 else
   grep -q 'OrtGetApiBase' < <(readelf -Ws "$core") || die "ORT core does not export OrtGetApiBase"
   grep -q 'CreateEpFactories' < <(readelf -Ws "$plugin") || die "WebGPU plugin does not export CreateEpFactories"
   grep -q 'ReleaseEpFactory' < <(readelf -Ws "$plugin") || die "WebGPU plugin does not export ReleaseEpFactory"
   readelf -h "$plugin" >/dev/null
+
+  while IFS= read -r -d '' library; do
+    max_glibc="$(readelf --version-info "$library" | grep -oE 'GLIBC_[0-9]+(\.[0-9]+)+' | sed 's/^GLIBC_//' | sort -Vu | tail -1 || true)"
+    max_glibcxx="$(readelf --version-info "$library" | grep -oE 'GLIBCXX_[0-9]+(\.[0-9]+)+' | sed 's/^GLIBCXX_//' | sort -Vu | tail -1 || true)"
+    if [ -n "$max_glibc" ] && [ "$(printf '%s\n%s\n' "$max_glibc" "$LINUX_MAX_GLIBC" | sort -V | tail -1)" != "$LINUX_MAX_GLIBC" ]; then
+      die "$library requires GLIBC_$max_glibc; maximum allowed is GLIBC_$LINUX_MAX_GLIBC"
+    fi
+    if [ -n "$max_glibcxx" ] && [ "$(printf '%s\n%s\n' "$max_glibcxx" "$LINUX_MAX_GLIBCXX" | sort -V | tail -1)" != "$LINUX_MAX_GLIBCXX" ]; then
+      die "$library requires GLIBCXX_$max_glibcxx; maximum allowed is GLIBCXX_$LINUX_MAX_GLIBCXX"
+    fi
+  done < <(find "$dist_dir/package" -type f -name '*.so*' -print0)
 fi
 
 asset="$dist_dir/onnxruntime-webgpu-$target-$ORT_VERSION-pilot.$PACKAGE_REVISION.tar.gz"

@@ -6,7 +6,7 @@ on:
       tag:
         description: Immutable release tag
         required: true
-        default: ort-1.27.0-webgpu-pilot.3
+        default: ort-1.27.0-webgpu-pilot.4
       ort_ref:
         description: Pinned ONNX Runtime tag
         required: true
@@ -180,10 +180,10 @@ jobs:
       matrix:
         include:
           - target: linux-x64
-            runner: ubuntu-24.04
+            runner: ubuntu-22.04
             cmake_hash: 7939260931098c3f00d2b36de3bee6a0ee3bcae2dba001598c492ed5c82d295c9aa9969654f1ff937fec4d71679541238baaa648c5246f36e14f28f0a62337a0
           - target: linux-arm64
-            runner: ubuntu-24.04-arm
+            runner: ubuntu-22.04-arm
             cmake_hash: 8eeb07e966a5340c122979dd2e371708a78adccc85200b22bc7e66028e65513bce5ced6c37fe65aedb94000d970186c5c7562d1ab3dbda911061de46b75345d9
           - target: macos-x64
             runner: macos-15-intel
@@ -360,7 +360,7 @@ jobs:
           cat >"$notes" <<EOF
           Custom ONNX Runtime packaging build for ${{ inputs.ort_ref }}.
 
-          Android assets contain a custom ONNX Runtime core with WebGPU and XNNPACK built in. Desktop runtime bundles contain a matching custom ONNX Runtime core and WebGPU plugin; Windows archives also include DXC runtime DLLs. The iOS XCFramework contains a static ONNX Runtime core with CoreML and CPU support for iOS 15.1 and later. Every binary has a verified SHA-256 sidecar and build manifest.
+          Android assets contain a custom ONNX Runtime core with WebGPU and XNNPACK built in. Desktop runtime bundles contain a matching custom ONNX Runtime core and WebGPU plugin. Linux packages target an Ubuntu 22.04-compatible ABI, macOS packages target macOS 12.0 and later, and Windows archives include DXC runtime DLLs. The iOS XCFramework contains a static ONNX Runtime core with CoreML and CPU support for iOS 15.1 and later. Every binary has a verified SHA-256 sidecar and build manifest.
           EOF
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             echo "Release $RELEASE_TAG already exists; immutable releases cannot be overwritten." >&2
