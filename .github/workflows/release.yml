@@ -97,6 +97,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          source versions.env
           echo no | avdmanager create avd --force \
             --name ort-packaging-smoke \
             --package "system-images;android-$ANDROID_TARGET_SDK;google_apis;x86_64"
