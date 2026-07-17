@@ -90,7 +90,12 @@ jobs:
             -r onnxruntime/tools/ci_build/github/linux/docker/scripts/requirements.txt
 
       - name: Build AAR
-        run: scripts/build-android.sh "${{ matrix.abi }}"
+        shell: bash
+        run: |
+          if ! scripts/build-android.sh "${{ matrix.abi }}"; then
+            echo "::warning::Android build failed once; retrying from a clean build directory"
+            scripts/build-android.sh "${{ matrix.abi }}"
+          fi
 
       - name: Run Android packaged runtime inference smoke test
         if: matrix.abi == 'x86_64'
@@ -98,9 +103,18 @@ jobs:
         run: |
           set -euo pipefail
           source versions.env
+          export ANDROID_AVD_HOME="$RUNNER_TEMP/android-avd"
+          mkdir -p "$ANDROID_AVD_HOME"
           echo no | avdmanager create avd --force \
             --name ort-packaging-smoke \
-            --package "system-images;android-$ANDROID_TARGET_SDK;google_apis;x86_64"
+            --package "system-images;android-$ANDROID_TARGET_SDK;google_apis;x86_64" \
+            --path "$ANDROID_AVD_HOME/ort-packaging-smoke.avd" \
+            --device medium_phone
+          available_avds="$("$ANDROID_HOME/emulator/emulator" -list-avds)"
+          grep -Fqx 'ort-packaging-smoke' <<<"$available_avds" || {
+            printf 'Created AVD was not visible to the emulator. Available AVDs:\n%s\n' "$available_avds" >&2
+            exit 1
+          }
           [ ! -e /dev/kvm ] || sudo chmod 666 /dev/kvm
           emulator_log="$RUNNER_TEMP/android-emulator.log"
           export ANDROID_SERIAL=emulator-5554
