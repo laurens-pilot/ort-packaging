@@ -10,6 +10,8 @@ require_cmd nm
 require_cmd otool
 require_cmd plutil
 require_cmd python3
+require_cmd strip
+require_cmd tee
 require_cmd xcodebuild
 require_cmd xcrun
 require_cmd zip
@@ -45,18 +47,18 @@ for forbidden in ("--use_webgpu", "--use_xnnpack"):
 PY
 
 log "building iOS CoreML XCFramework"
+build_log="$build_dir/build.log"
 python3 "$ORT_SOURCE_DIR/tools/ci_build/github/apple/build_apple_framework.py" \
   --build_dir "$build_dir" \
   --config Release \
-  "$settings"
+  "$settings" 2>&1 | tee "$build_log"
+
+if grep -Fq -- '-Wunguarded-availability-new' "$build_log"; then
+  die "iOS build emitted an unguarded runtime availability warning"
+fi
 
 xcframework="$build_dir/framework_out/onnxruntime.xcframework"
 require_dir "$xcframework"
-cp -R "$xcframework" "$package_dir/"
-cp "$ORT_SOURCE_DIR/LICENSE" "$package_dir/ONNXRUNTIME-LICENSE"
-[ -f "$ORT_SOURCE_DIR/ThirdPartyNotices.txt" ] && cp "$ORT_SOURCE_DIR/ThirdPartyNotices.txt" "$package_dir/"
-[ -f "$build_dir/xcframework_info.json" ] && cp "$build_dir/xcframework_info.json" "$package_dir/"
-write_manifest "$package_dir/manifest.env" "ios" "disabled" "CoreML,CPU"
 
 python3 - "$xcframework/Info.plist" <<'PY'
 import plistlib
@@ -87,6 +89,11 @@ while IFS= read -r -d '' binary; do
 done < <(find "$xcframework" -type f -name onnxruntime -print0)
 [ "${#framework_binaries[@]}" -eq 2 ] || die "expected two iOS framework binaries"
 for binary in "${framework_binaries[@]}"; do
+  strip -S "$binary"
+  if otool -l "$binary" | grep -Fq 'segname __DWARF'; then
+    die "iOS framework still contains DWARF sections after stripping: $binary"
+  fi
+
   archs="$(lipo -archs "$binary")"
   case "$binary" in
     *simulator*) [ "$archs" = "arm64" ] || die "unexpected simulator architectures: $archs" ;;
@@ -98,6 +105,12 @@ for binary in "${framework_binaries[@]}"; do
   grep -q '_OrtGetApiBase' < <(nm -gU "$binary") || die "ORT core does not export OrtGetApiBase"
   grep -q '_OrtSessionOptionsAppendExecutionProvider_CoreML' < <(nm -gU "$binary") || die "ORT core does not include CoreML EP"
 done
+
+cp -R "$xcframework" "$package_dir/"
+cp "$ORT_SOURCE_DIR/LICENSE" "$package_dir/ONNXRUNTIME-LICENSE"
+[ -f "$ORT_SOURCE_DIR/ThirdPartyNotices.txt" ] && cp "$ORT_SOURCE_DIR/ThirdPartyNotices.txt" "$package_dir/"
+[ -f "$build_dir/xcframework_info.json" ] && cp "$build_dir/xcframework_info.json" "$package_dir/"
+write_manifest "$package_dir/manifest.env" "ios" "disabled" "CoreML,CPU"
 
 asset="$dist_dir/onnxruntime-coreml-ios-$ORT_VERSION-pilot.$PACKAGE_REVISION.zip"
 (

@@ -24,7 +24,8 @@ jobs:
           shellcheck -x -P scripts scripts/*.sh
           for script in scripts/*.sh; do bash -n "$script"; done
           jq --exit-status . config/*.json >/dev/null
-          pwsh -NoProfile -Command '$errors = $null; [System.Management.Automation.Language.Parser]::ParseFile("scripts/build-windows.ps1", [ref]$null, [ref]$errors) | Out-Null; if ($errors.Count) { $errors | Format-List; exit 1 }'
+          # shellcheck disable=SC2016
+          pwsh -NoProfile -Command '$errors = $null; Get-ChildItem scripts/*.ps1 | ForEach-Object { [System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$null, [ref]$errors) | Out-Null }; if ($errors.Count) { $errors | Format-List; exit 1 }'
 
       - name: Verify pinned ONNX Runtime patches
         shell: bash
@@ -36,3 +37,11 @@ jobs:
             git -C "$RUNNER_TEMP/onnxruntime" apply --check "$patch"
             git -C "$RUNNER_TEMP/onnxruntime" apply "$patch"
           done
+
+      - name: Compile portable runtime smoke test
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S tests -B "$RUNNER_TEMP/runtime-smoke" \
+            -DORT_INCLUDE_DIR="$RUNNER_TEMP/onnxruntime/include/onnxruntime/core/session"
+          cmake --build "$RUNNER_TEMP/runtime-smoke" --parallel

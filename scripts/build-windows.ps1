@@ -41,6 +41,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Remove-Item $buildDir, $distDir -Recurse -Force -ErrorAction SilentlyContinue
+New-Item $buildDir -ItemType Directory -Force | Out-Null
 New-Item $packageDir -ItemType Directory -Force | Out-Null
 
 $buildArgs = @(
@@ -62,12 +63,47 @@ $buildArgs = @(
     "onnxruntime_ENABLE_DAWN_BACKEND_VULKAN=0"
 )
 if ($target -eq "windows-arm64") {
-    # Native ARM64 MSVC reports benign C4702 unreachable-code warnings during
-    # WebGPU LTO. Use ORT's supported switch instead of patching Dawn sources.
+    # KleidiAI 1.20.0 calls a half-float conversion that is not declared by its
+    # MSVC ARM64 configuration. Keep the correct MLAS fallback until upstream
+    # supports this toolchain rather than shipping a potentially dead-stripped
+    # unresolved call.
+    $buildArgs += "--no_kleidiai"
+
+    # Dawn's pinned source has exhaustive enum switches ending in
+    # DAWN_UNREACHABLE, which native ARM64 MSVC does not recognize as returning.
+    # The exact warnings are allowlisted below and the packaged runtime is then
+    # exercised by test-windows-runtime.ps1 in the same release job.
     $buildArgs += "--compile_no_warning_as_error"
 }
-python @buildArgs
+$buildLog = Join-Path $buildDir "build.log"
+python @buildArgs 2>&1 | Tee-Object -FilePath $buildLog
 if ($LASTEXITCODE -ne 0) { throw "ONNX Runtime build failed" }
+
+if ($target -eq "windows-arm64") {
+    $warnings = @(Select-String -Path $buildLog -Pattern 'warning C\d{4}:' | ForEach-Object { $_.Line })
+    $undeclaredCalls = @($warnings | Where-Object { $_ -match 'warning C4013:' })
+    if ($undeclaredCalls.Count -ne 0) {
+        throw "Windows ARM64 build contains undeclared function calls: $($undeclaredCalls -join [Environment]::NewLine)"
+    }
+
+    $missingReturnWarnings = @($warnings | Where-Object { $_ -match 'warning C4715:' })
+    $allowedWarnings = @(
+        'BackendD3D\.cpp\(73\): warning C4715: .*ToDXGIPowerPreference',
+        'UtilsD3D\.cpp\(420\): warning C4715: .*DXGITextureFormat',
+        'UtilsD3D\.cpp\(265\): warning C4715: .*DXGITypelessTextureFormat'
+    )
+    foreach ($warning in $missingReturnWarnings) {
+        if (-not ($allowedWarnings | Where-Object { $warning -match $_ })) {
+            throw "unexpected Windows ARM64 compiler warning: $warning"
+        }
+    }
+    foreach ($pattern in $allowedWarnings) {
+        $matches = @($missingReturnWarnings | Where-Object { $_ -match $pattern })
+        if ($matches.Count -ne 1) {
+            throw "expected exactly one pinned Dawn warning matching: $pattern"
+        }
+    }
+}
 
 $outputDir = Join-Path $buildDir "Release/Release"
 $plugin = Join-Path $outputDir "onnxruntime_providers_webgpu.dll"
@@ -77,6 +113,9 @@ if (-not (Test-Path $plugin)) { throw "missing WebGPU plugin: $plugin" }
 if (-not (Test-Path $core)) { throw "missing ONNX Runtime core: $core" }
 if (-not (Test-Path $providersShared)) { throw "missing shared provider runtime: $providersShared" }
 Copy-Item $plugin, $core, $providersShared $packageDir
+if (Get-ChildItem $packageDir -Filter "*.pdb" -Recurse) {
+    throw "Windows runtime package must not contain debug symbol files"
+}
 
 # Match ONNX Runtime's official plugin packaging pipeline: distribute the
 # checksum-pinned DXC release runtime for the target architecture rather than
@@ -95,6 +134,17 @@ foreach ($dependency in @("dxcompiler.dll", "dxil.dll")) {
     $path = Join-Path $dxcExtract "bin/$dxcArch/$dependency"
     if (-not (Test-Path $path)) { throw "missing WebGPU dependency: $path" }
     Copy-Item $path $packageDir
+}
+$dxcLicenses = [ordered]@{
+    "LICENSE-LLVM.txt" = "DXC-LICENSE-LLVM.txt"
+    "LICENSE-MIT.txt" = "DXC-LICENSE-MIT.txt"
+    "LICENSE-MS.txt" = "DXC-LICENSE-MS.txt"
+    "inc/hlsl/LICENSE.txt" = "DXC-HLSL-LICENSE.txt"
+}
+foreach ($license in $dxcLicenses.GetEnumerator()) {
+    $source = Join-Path $dxcExtract $license.Key
+    if (-not (Test-Path $source)) { throw "missing DXC license: $source" }
+    Copy-Item $source (Join-Path $packageDir $license.Value)
 }
 Copy-Item (Join-Path $ortSource "LICENSE") (Join-Path $packageDir "ONNXRUNTIME-LICENSE")
 if (Test-Path (Join-Path $ortSource "ThirdPartyNotices.txt")) {

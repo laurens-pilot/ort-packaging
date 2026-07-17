@@ -6,7 +6,7 @@ on:
       tag:
         description: Immutable release tag
         required: true
-        default: ort-1.27.0-webgpu-pilot.5
+        default: ort-1.27.0-webgpu-pilot.6
       ort_ref:
         description: Pinned ONNX Runtime tag
         required: true
@@ -82,12 +82,33 @@ jobs:
           sudo apt-get install -y --no-install-recommends ninja-build unzip zip
           yes | sdkmanager --licenses >/dev/null || true
           sdkmanager "platforms;android-$ANDROID_TARGET_SDK" "ndk;$ANDROID_NDK_VERSION"
+          if [ "${{ matrix.abi }}" = "x86_64" ]; then
+            sdkmanager "emulator" "system-images;android-$ANDROID_TARGET_SDK;google_apis;x86_64"
+          fi
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/$ANDROID_NDK_VERSION" >> "$GITHUB_ENV"
           python -m pip install --disable-pip-version-check \
             -r onnxruntime/tools/ci_build/github/linux/docker/scripts/requirements.txt
 
       - name: Build AAR
         run: scripts/build-android.sh "${{ matrix.abi }}"
+
+      - name: Run Android packaged runtime inference smoke test
+        if: matrix.abi == 'x86_64'
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo no | avdmanager create avd --force \
+            --name ort-packaging-smoke \
+            --package "system-images;android-$ANDROID_TARGET_SDK;google_apis;x86_64"
+          [ ! -e /dev/kvm ] || sudo chmod 666 /dev/kvm
+          nohup "$ANDROID_HOME/emulator/emulator" \
+            -avd ort-packaging-smoke \
+            -no-window -noaudio -no-boot-anim -no-snapshot \
+            -gpu swiftshader_indirect >"$RUNNER_TEMP/android-emulator.log" 2>&1 &
+          adb wait-for-device
+          # shellcheck disable=SC2016
+          timeout 600 bash -c 'until [ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d "\r")" = "1" ]; do sleep 5; done'
+          scripts/test-android-runtime.sh x86_64
 
       - uses: actions/upload-artifact@v4
         with:
@@ -163,6 +184,9 @@ jobs:
       - name: Build CoreML XCFramework
         run: scripts/build-ios.sh
 
+      - name: Run iOS CPU and CoreML inference smoke tests
+        run: scripts/test-ios-runtime.sh
+
       - uses: actions/upload-artifact@v4
         with:
           name: ios
@@ -235,6 +259,9 @@ jobs:
       - name: Build plugin
         run: scripts/build-desktop.sh "${{ matrix.target }}"
 
+      - name: Run packaged runtime smoke tests
+        run: scripts/test-desktop-runtime.sh "${{ matrix.target }}"
+
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.target }}
@@ -292,6 +319,10 @@ jobs:
       - name: Build plugin
         shell: pwsh
         run: scripts/build-windows.ps1 "${{ matrix.target }}"
+
+      - name: Run packaged runtime smoke tests
+        shell: pwsh
+        run: scripts/test-windows-runtime.ps1 "${{ matrix.target }}"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -364,7 +395,7 @@ jobs:
           cat >"$notes" <<EOF
           Custom ONNX Runtime packaging build for ${{ inputs.ort_ref }}.
 
-          Android assets contain a custom ONNX Runtime core with WebGPU and XNNPACK built in. Desktop runtime bundles contain a matching custom ONNX Runtime core and WebGPU plugin. Linux packages target an Ubuntu 22.04-compatible ABI, macOS packages target macOS 13.3 and later, and Windows archives include DXC runtime DLLs. The iOS XCFramework contains a static ONNX Runtime core with CoreML and CPU support for iOS 15.1 and later. Every binary has a verified SHA-256 sidecar and build manifest.
+          Android assets contain a custom ONNX Runtime core with WebGPU and XNNPACK built in. Desktop runtime bundles contain a matching custom ONNX Runtime core and WebGPU plugin. Linux packages target an Ubuntu 22.04-compatible ABI, macOS packages target macOS 13.3 and later, and Windows archives include the checksum-pinned DXC runtime DLLs and their licenses. The iOS XCFramework contains a static ONNX Runtime core with CoreML and CPU support for iOS 15.1 and later. Custom-built binaries are stripped of or packaged without debug symbol data. CI runs packaged-runtime inference or load/registration smoke tests on every native runner before this release is published. Every binary has a verified SHA-256 sidecar and build manifest.
           EOF
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             echo "Release $RELEASE_TAG already exists; immutable releases cannot be overwritten." >&2
@@ -375,3 +406,6 @@ jobs:
             --title "$RELEASE_TAG" \
             --notes-file "$notes" \
             "${prerelease_flag[@]}"
+
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" \
+            --jq 'if .draft == false and .immutable == true and (.assets | length) == 34 then empty else error("published release is not immutable or has the wrong asset count") end'

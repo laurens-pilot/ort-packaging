@@ -23,7 +23,8 @@ Do not mix these packages with another ONNX Runtime build.
 - `versions.env`: ONNX Runtime and toolchain pins
 - `config/`: Android and iOS build configurations
 - `scripts/`: platform build and packaging entrypoints
-- `patches/`: reviewable upstream build-system patches
+- `patches/`: reviewable upstream build and runtime-compatibility patches
+- `tests/`: portable packaged-runtime inference smoke tests
 - `.github/workflows/release.yml`: native build and release matrix
 
 Generated files are written to `build/` and `dist/`, which are ignored by Git.
@@ -35,7 +36,7 @@ The release workflow builds all targets on native GitHub-hosted runners. Android
 ```sh
 gh workflow run release.yml \
   --repo laurens-pilot/ort-packaging \
-  -f tag=ort-1.27.0-webgpu-pilot.5 \
+  -f tag=ort-1.27.0-webgpu-pilot.6 \
   -f ort_ref=v1.27.0 \
   -f prerelease=true \
   -f scope=all
@@ -43,7 +44,7 @@ gh workflow run release.yml \
 
 Use `scope=windows` for a Windows-only build probe. Probe runs do not publish releases.
 
-Release tags are immutable. Packaging-only changes increment `PACKAGE_REVISION` in `versions.env`.
+Release tags are immutable. GitHub release immutability must be enabled under **Settings → General → Releases** before starting a release; the workflow verifies the published release is immutable. Packaging-only changes increment `PACKAGE_REVISION` in `versions.env`.
 
 ## Release Verification
 
@@ -52,13 +53,13 @@ Every binary asset includes:
 - a `.sha256` checksum;
 - a `.manifest.env` file identifying the ORT source and target.
 
-The release also includes `SHA256SUMS`. CI verifies all checksums and manifests before publishing. Binary archives include the ONNX Runtime license and third-party notices; Android AARs store them under `META-INF/`.
+The release also includes `SHA256SUMS`. CI verifies all checksums and manifests before publishing. Custom-built release binaries are stripped of or packaged without debug symbol data; Linux and Android builds additionally reject symbol tables and executable stacks. The pinned, Microsoft-signed DXC DLLs remain byte-for-byte identical to their verified upstream archive. Binary archives include the ONNX Runtime license and third-party notices; Android AARs store them under `META-INF/`. Windows archives also include the four license files shipped with the pinned DXC runtime.
 
 Example:
 
 ```sh
-tag=ort-1.27.0-webgpu-pilot.5
-asset=onnxruntime-webgpu-android-1.27.0-pilot.5.aar
+tag=ort-1.27.0-webgpu-pilot.6
+asset=onnxruntime-webgpu-android-1.27.0-pilot.6.aar
 base=https://github.com/laurens-pilot/ort-packaging/releases/download/$tag
 
 curl -fL -o "$asset" "$base/$asset"
@@ -70,7 +71,7 @@ Always pin an immutable release tag and checksum downstream.
 
 ## Validation Scope
 
-CI verifies package structure, native architectures, required exports, Android JNI contents, and checksums. It does not run inference or benchmark GPU performance.
+CI verifies package structure, native architectures, required exports, Android JNI contents, checksums, and packaged runtime loading. It runs CPU and WebGPU inference on native macOS x64/ARM64 runners, CPU and plugin ABI smoke tests on native Linux and Windows x64/ARM64 runners, packaged CPU inference in an Android x86_64 emulator, and CPU/CoreML inference in an ARM64 iOS Simulator. Standard Linux and Windows hosted runners do not expose GPUs, so their WebGPU checks validate plugin registration and dependencies rather than GPU execution. Hosted Android emulators likewise cannot exercise WebGPU without a host GPU. Android WebGPU, Android ARM device ABIs, and the iOS device slice receive structural validation; representative physical-device testing remains a downstream release criterion.
 
 Releases remain prereleases until representative-device correctness and performance testing is completed downstream.
 

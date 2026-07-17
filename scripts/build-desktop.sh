@@ -21,7 +21,10 @@ mkdir -p "$build_dir" "$dist_dir/package"
 cmake_defines=("onnxruntime_BUILD_UNIT_TESTS=OFF")
 case "$target" in
   linux-*)
-    cmake_defines+=("onnxruntime_ENABLE_DAWN_BACKEND_VULKAN=1")
+    cmake_defines+=(
+      "onnxruntime_ENABLE_DAWN_BACKEND_VULKAN=1"
+      "CMAKE_SHARED_LINKER_FLAGS=-Wl,-z,noexecstack"
+    )
     plugin="$build_dir/Release/libonnxruntime_providers_webgpu.so"
     core="$build_dir/Release/libonnxruntime.so.$ORT_VERSION"
     ;;
@@ -38,6 +41,7 @@ case "$target" in
 esac
 
 if [[ "$target" == macos-* ]]; then
+  require_cmd strip
   # ORT's build.py reads this when generating its vcpkg overlay triplets. A
   # top-level -DVCPKG_OSX_DEPLOYMENT_TARGET does not configure vcpkg ports.
   export MACOSX_DEPLOYMENT_TARGET="$MACOS_MIN_VERSION"
@@ -111,6 +115,10 @@ if [[ "$target" == macos-* ]]; then
   expected_arch="${target#macos-}"
   [ "$expected_arch" != "x64" ] || expected_arch="x86_64"
   while IFS= read -r -d '' library; do
+    strip -S "$library"
+    if otool -l "$library" | grep -Fq 'segname __DWARF'; then
+      die "macOS runtime still contains DWARF sections after stripping: $library"
+    fi
     codesign --force --sign - "$library"
     file "$library" | grep -q "$expected_arch" || die "unexpected macOS binary architecture: $library"
   done < <(find "$dist_dir/package" -type f -name '*.dylib' -print0)
@@ -124,6 +132,19 @@ if [[ "$target" == macos-* ]]; then
       die "unexpected macOS deployment target for $library: expected $MACOS_MIN_VERSION, found ${actual_min:-unknown}"
   done < <(find "$dist_dir/package" -type f -name '*.dylib' -print0)
 else
+  require_cmd readelf
+  require_cmd strip
+  while IFS= read -r -d '' library; do
+    strip --strip-unneeded "$library"
+    if readelf -W -S "$library" | grep -Eq '] \.(debug|zdebug|gnu_debuglink|symtab)([[:space:]]|_)'; then
+      die "Linux runtime still contains debug or symbol-table sections after stripping: $library"
+    fi
+
+    stack_header="$(readelf -W -l "$library" | awk '$1 == "GNU_STACK" { print; exit }')"
+    [ -n "$stack_header" ] || die "Linux runtime has no GNU_STACK header: $library"
+    [[ "$stack_header" != *E* ]] || die "Linux runtime requests an executable stack: $library"
+  done < <(find "$dist_dir/package" -type f -name '*.so*' -print0)
+
   grep -q 'OrtGetApiBase' < <(readelf -Ws "$core") || die "ORT core does not export OrtGetApiBase"
   grep -q 'CreateEpFactories' < <(readelf -Ws "$plugin") || die "WebGPU plugin does not export CreateEpFactories"
   grep -q 'ReleaseEpFactory' < <(readelf -Ws "$plugin") || die "WebGPU plugin does not export ReleaseEpFactory"

@@ -19,6 +19,13 @@ require_file "$REPO_ROOT/config/android-webgpu.json"
 require_dir "${ANDROID_HOME:-}"
 require_dir "${ANDROID_NDK_HOME:-}"
 
+ndk_bin="$(find "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt" -type d -name bin -print -quit)"
+require_dir "$ndk_bin"
+ndk_readelf="$ndk_bin/llvm-readelf"
+ndk_strip="$ndk_bin/llvm-strip"
+require_file "$ndk_readelf"
+require_file "$ndk_strip"
+
 python3 - "$REPO_ROOT/config/android-webgpu.json" "$ANDROID_MIN_SDK" <<'PY'
 import json
 import sys
@@ -57,15 +64,28 @@ require_file "$aar"
 require_file "$ORT_SOURCE_DIR/LICENSE"
 require_file "$ORT_SOURCE_DIR/ThirdPartyNotices.txt"
 asset="$dist_dir/onnxruntime-webgpu-android-$abi-$ORT_VERSION-pilot.$PACKAGE_REVISION.aar"
-cp "$aar" "$asset"
+package_dir="$build_dir/package"
+mkdir -p "$package_dir"
+unzip -q "$aar" -d "$package_dir"
 
-notice_dir="$build_dir/package-notices/META-INF"
+while IFS= read -r -d '' library; do
+  "$ndk_strip" --strip-unneeded "$library"
+  if "$ndk_readelf" --sections "$library" | grep -Eq '] \.(debug|zdebug|gnu_debuglink|symtab)([[:space:]]|_)'; then
+    die "Android runtime still contains debug or symbol-table sections after stripping: $library"
+  fi
+
+  stack_header="$("$ndk_readelf" --program-headers "$library" | awk '$1 == "GNU_STACK" { print; exit }')"
+  [ -n "$stack_header" ] || die "Android runtime has no GNU_STACK header: $library"
+  [[ "$stack_header" != *E* ]] || die "Android runtime requests an executable stack: $library"
+done < <(find "$package_dir" -type f -name '*.so' -print0)
+
+notice_dir="$package_dir/META-INF"
 mkdir -p "$notice_dir"
 cp "$ORT_SOURCE_DIR/LICENSE" "$notice_dir/ONNXRUNTIME-LICENSE"
 cp "$ORT_SOURCE_DIR/ThirdPartyNotices.txt" "$notice_dir/ThirdPartyNotices.txt"
 (
-  cd "$build_dir/package-notices"
-  zip -q "$asset" META-INF/ONNXRUNTIME-LICENSE META-INF/ThirdPartyNotices.txt
+  cd "$package_dir"
+  zip -q -r "$asset" .
 )
 
 write_checksum "$asset"
