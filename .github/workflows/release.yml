@@ -247,7 +247,7 @@ jobs:
           fi
           sudo apt-get -o Acquire::ForceIPv4=true -o Acquire::Retries=5 update
           sudo apt-get -o Acquire::ForceIPv4=true -o Acquire::Retries=5 install -y --no-install-recommends \
-            libvulkan-dev ninja-build patchelf
+            libvulkan-dev mesa-vulkan-drivers ninja-build patchelf
 
       - name: Install pinned Python build tools
         shell: bash
@@ -256,7 +256,7 @@ jobs:
           python -m pip install --disable-pip-version-check \
             -r onnxruntime/tools/ci_build/github/linux/docker/scripts/requirements.txt
 
-      - name: Build plugin
+      - name: Build desktop runtime
         run: scripts/build-desktop.sh "${{ matrix.target }}"
 
       - name: Run packaged runtime smoke tests
@@ -395,7 +395,7 @@ jobs:
           cat >"$notes" <<EOF
           Custom ONNX Runtime packaging build for ${{ inputs.ort_ref }}.
 
-          Android assets contain a custom ONNX Runtime core with WebGPU and XNNPACK built in. Desktop runtime bundles contain a matching custom ONNX Runtime core and WebGPU plugin. Linux packages target an Ubuntu 22.04-compatible ABI, macOS packages target macOS 13.3 and later, and Windows archives include the checksum-pinned DXC runtime DLLs and their licenses. The iOS XCFramework contains a static ONNX Runtime core with CoreML and CPU support for iOS 15.1 and later. Custom-built binaries are stripped of or packaged without debug symbol data. CI runs packaged-runtime inference or load/registration smoke tests on every native runner before this release is published. Every binary has a verified SHA-256 sidecar and build manifest.
+          Android assets contain a custom ONNX Runtime core with WebGPU and XNNPACK built in. Linux and Windows runtime bundles contain a matching custom ONNX Runtime core and WebGPU plugin; Linux packages target an Ubuntu 22.04-compatible ABI, and Windows archives include the checksum-pinned DXC runtime DLLs and their licenses. macOS archives contain a CoreML-enabled ORT core targeting macOS 13.3 and later, with no WebGPU provider. The iOS XCFramework contains a static ONNX Runtime core with CoreML and CPU support for iOS 15.1 and later. Custom-built binaries are stripped of or packaged without debug symbol data. CI runs packaged-runtime inference tests on every native runner before this release is published. Every binary has a verified SHA-256 sidecar and build manifest.
           EOF
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             echo "Release $RELEASE_TAG already exists; immutable releases cannot be overwritten." >&2

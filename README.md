@@ -11,10 +11,10 @@ Current build: **ONNX Runtime 1.27.0** from upstream tag `v1.27.0`. Version and 
 | Android | arm64-v8a, armeabi-v7a, x86_64 | API 24+ ABI-specific and universal AARs with ORT, Java/JNI, WebGPU, XNNPACK, and CPU fallback |
 | iOS | ARM64 | Static XCFramework with ORT, CoreML, and CPU fallback; deployment target 15.1 |
 | Linux | x64, ARM64 | ORT shared runtime and WebGPU plugin; Ubuntu 22.04-compatible ABI |
-| macOS | Intel x64, Apple Silicon ARM64 | ORT shared runtime and WebGPU plugin; deployment target 13.3 |
+| macOS | Intel x64, Apple Silicon ARM64 | ORT shared runtime with CoreML and CPU fallback; deployment target 13.3 |
 | Windows | x64, ARM64 | ORT runtime, WebGPU plugin, and required DXC DLLs |
 
-The Android AAR packages WebGPU into the runtime and replaces `onnxruntime-android`. The iOS artifact replaces the official C XCFramework and requires linking `Foundation`, weak-linking `CoreML`, and linking `c++`. Desktop archives contain a matching ORT core and WebGPU plugin built from the same source revision. Register the plugin and select its device through ORT's V2 device API or automatic device selection; the legacy built-in WebGPU registration API does not load plugin EPs. Windows applications must provide the standard Microsoft Visual C++ 2015–2022 runtime, as required by Microsoft's official ORT binaries too.
+The Android AAR packages WebGPU into the runtime and replaces `onnxruntime-android`. The iOS artifact replaces the official C XCFramework and requires linking `Foundation`, weak-linking `CoreML`, and linking `c++`. Linux and Windows archives contain a matching ORT core and WebGPU plugin built from the same source revision. Register the plugin and select its device through ORT's V2 device API or automatic device selection; the legacy built-in WebGPU registration API does not load plugin EPs. macOS archives instead contain CoreML built directly into the ORT core and do not include WebGPU. Windows applications must provide the standard Microsoft Visual C++ 2015–2022 runtime, as required by Microsoft's official ORT binaries too.
 
 Do not mix these packages with another ONNX Runtime build.
 
@@ -71,7 +71,7 @@ Always pin an immutable release tag and checksum downstream.
 
 ## Validation Scope
 
-CI verifies package structure, native architectures, required exports, Android JNI contents, checksums, and packaged runtime loading. It runs CPU and WebGPU inference on native macOS x64/ARM64 runners, CPU and plugin ABI smoke tests on native Linux and Windows x64/ARM64 runners, packaged CPU inference in an Android x86_64 emulator, and CPU/CoreML inference in an ARM64 iOS Simulator. Standard Linux and Windows hosted runners do not expose GPUs, so their WebGPU checks validate plugin registration and dependencies rather than GPU execution. Hosted Android emulators likewise cannot exercise WebGPU without a host GPU. Android WebGPU, Android ARM device ABIs, and the iOS device slice receive structural validation; representative physical-device testing remains a downstream release criterion.
+CI verifies package structure, native architectures, required exports, Android JNI contents, checksums, and packaged runtime loading. It runs CPU and WebGPU inference on native Linux and Windows x64/ARM64 runners, using Mesa's software Vulkan driver on Linux and D3D12 on Windows. It runs CPU and CoreML inference on native macOS x64/ARM64 runners and in an ARM64 iOS Simulator, plus packaged CPU inference in an Android x86_64 emulator. Hosted Android emulators cannot exercise WebGPU without a host GPU. Android WebGPU, Android ARM device ABIs, and the iOS device slice receive structural validation; representative physical-device testing remains a downstream release criterion.
 
 Releases remain prereleases until representative-device correctness and performance testing is completed downstream.
 

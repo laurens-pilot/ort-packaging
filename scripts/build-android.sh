@@ -19,7 +19,11 @@ require_file "$REPO_ROOT/config/android-webgpu.json"
 require_dir "${ANDROID_HOME:-}"
 require_dir "${ANDROID_NDK_HOME:-}"
 
-ndk_bin="$(find "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt" -type d -name bin -print -quit)"
+shopt -s nullglob
+ndk_bins=("$ANDROID_NDK_HOME"/toolchains/llvm/prebuilt/*/bin)
+shopt -u nullglob
+[ "${#ndk_bins[@]}" -eq 1 ] || die "expected exactly one Android NDK host toolchain, found ${#ndk_bins[@]}"
+ndk_bin="${ndk_bins[0]}"
 require_dir "$ndk_bin"
 ndk_readelf="$ndk_bin/llvm-readelf"
 ndk_strip="$ndk_bin/llvm-strip"

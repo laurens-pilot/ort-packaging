@@ -24,18 +24,25 @@ case "$target" in
   linux-*)
     core="$package_dir/libonnxruntime.so.$ORT_VERSION"
     plugin="$package_dir/libonnxruntime_providers_webgpu.so"
-    require_webgpu=0
+    provider_spec="$plugin"
+    require_webgpu=1
     backend=Vulkan
+
+    lavapipe_icd="$(find /usr/share/vulkan/icd.d -maxdepth 1 -type f -name 'lvp_icd*.json' -print -quit)"
+    require_file "$lavapipe_icd"
+    export VK_DRIVER_FILES="$lavapipe_icd"
     ;;
   macos-*)
     core="$package_dir/libonnxruntime.$ORT_VERSION.dylib"
-    plugin="$package_dir/libonnxruntime_providers_webgpu.dylib"
-    require_webgpu=1
+    provider_spec=builtin:CoreML
+    require_webgpu=0
     backend=-
     ;;
 esac
 require_file "$core"
-require_file "$plugin"
+if [[ "$target" == linux-* ]]; then
+  require_file "$plugin"
+fi
 
 rm -rf "$test_build_dir"
 cmake -S "$REPO_ROOT/tests" -B "$test_build_dir" \
@@ -51,5 +58,5 @@ fi
 
 (
   cd "$package_dir"
-  "$test_build_dir/runtime-smoke" "$core" "$plugin" "$model" "$require_webgpu" "$backend"
+  "$test_build_dir/runtime-smoke" "$core" "$provider_spec" "$model" "$require_webgpu" "$backend"
 )

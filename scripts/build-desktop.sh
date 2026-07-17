@@ -24,18 +24,17 @@ case "$target" in
     cmake_defines+=(
       "onnxruntime_ENABLE_DAWN_BACKEND_VULKAN=1"
       "CMAKE_SHARED_LINKER_FLAGS=-Wl,-z,noexecstack"
+      "CMAKE_MODULE_LINKER_FLAGS=-Wl,-z,noexecstack"
     )
     plugin="$build_dir/Release/libonnxruntime_providers_webgpu.so"
     core="$build_dir/Release/libonnxruntime.so.$ORT_VERSION"
     ;;
   macos-x64)
     cmake_defines+=("CMAKE_OSX_ARCHITECTURES=x86_64" "CMAKE_OSX_DEPLOYMENT_TARGET=$MACOS_MIN_VERSION")
-    plugin="$build_dir/Release/libonnxruntime_providers_webgpu.dylib"
     core="$build_dir/Release/libonnxruntime.$ORT_VERSION.dylib"
     ;;
   macos-arm64)
     cmake_defines+=("CMAKE_OSX_ARCHITECTURES=arm64" "CMAKE_OSX_DEPLOYMENT_TARGET=$MACOS_MIN_VERSION")
-    plugin="$build_dir/Release/libonnxruntime_providers_webgpu.dylib"
     core="$build_dir/Release/libonnxruntime.$ORT_VERSION.dylib"
     ;;
 esac
@@ -47,7 +46,15 @@ if [[ "$target" == macos-* ]]; then
   export MACOSX_DEPLOYMENT_TARGET="$MACOS_MIN_VERSION"
 fi
 
-log "building WebGPU plugin for $target"
+provider_args=()
+if [[ "$target" == linux-* ]]; then
+  provider_args+=(--use_webgpu shared_lib --wgsl_template static)
+  log "building ORT core and WebGPU plugin for $target"
+else
+  provider_args+=(--use_coreml)
+  log "building ORT core with CoreML for $target"
+fi
+
 build_args=(
   "$ORT_SOURCE_DIR/tools/ci_build/build.py"
   --build_dir "$build_dir"
@@ -56,8 +63,7 @@ build_args=(
   --skip_tests
   --build_shared_lib
   --use_vcpkg
-  --use_webgpu shared_lib
-  --wgsl_template static
+  "${provider_args[@]}"
   --disable_rtti
 )
 if [ "$target" = "linux-arm64" ]; then
@@ -84,8 +90,10 @@ if [[ "$target" == macos-* ]]; then
     die "generated vcpkg triplet does not target macOS $MACOS_MIN_VERSION"
 fi
 
-require_file "$plugin"
 require_file "$core"
+if [[ "$target" == linux-* ]]; then
+  require_file "$plugin"
+fi
 shopt -s nullglob
 case "$target" in
   linux-*) runtime_files=("$build_dir/Release"/libonnxruntime.so*) ;;
@@ -93,7 +101,11 @@ case "$target" in
 esac
 shopt -u nullglob
 [ "${#runtime_files[@]}" -gt 0 ] || die "no ONNX Runtime core libraries found"
-cp -P "$plugin" "${runtime_files[@]}" "$dist_dir/package/"
+if [[ "$target" == linux-* ]]; then
+  cp -P "$plugin" "${runtime_files[@]}" "$dist_dir/package/"
+else
+  cp -P "${runtime_files[@]}" "$dist_dir/package/"
+fi
 
 case "$target" in
   linux-*)
@@ -109,9 +121,17 @@ esac
 
 cp "$ORT_SOURCE_DIR/LICENSE" "$dist_dir/package/ONNXRUNTIME-LICENSE"
 [ -f "$ORT_SOURCE_DIR/ThirdPartyNotices.txt" ] && cp "$ORT_SOURCE_DIR/ThirdPartyNotices.txt" "$dist_dir/package/"
-write_manifest "$dist_dir/package/manifest.env" "$target" "plugin-shared" "WebGPU,CPU"
+if [[ "$target" == linux-* ]]; then
+  write_manifest "$dist_dir/package/manifest.env" "$target" "plugin-shared" "WebGPU,CPU"
+else
+  write_manifest "$dist_dir/package/manifest.env" "$target" "disabled" "CoreML,CPU"
+fi
 
 if [[ "$target" == macos-* ]]; then
+  if find "$dist_dir/package" -type f -iname '*webgpu*' -print -quit | grep -q .; then
+    die "macOS package unexpectedly contains a WebGPU component"
+  fi
+
   expected_arch="${target#macos-}"
   [ "$expected_arch" != "x64" ] || expected_arch="x86_64"
   while IFS= read -r -d '' library; do
@@ -122,9 +142,18 @@ if [[ "$target" == macos-* ]]; then
     codesign --force --sign - "$library"
     file "$library" | grep -q "$expected_arch" || die "unexpected macOS binary architecture: $library"
   done < <(find "$dist_dir/package" -type f -name '*.dylib' -print0)
-  grep -q '_OrtGetApiBase' < <(nm -gU "$core") || die "ORT core does not export OrtGetApiBase"
-  grep -q '_CreateEpFactories' < <(nm -gU "$plugin") || die "WebGPU plugin does not export CreateEpFactories"
-  grep -q '_ReleaseEpFactory' < <(nm -gU "$plugin") || die "WebGPU plugin does not export ReleaseEpFactory"
+
+  packaged_core="$dist_dir/package/$(basename "$core")"
+  symbols_file="$build_dir/packaged-core-symbols.txt"
+  require_file "$packaged_core"
+  nm -gU "$packaged_core" >"$symbols_file"
+  grep -Fq '_OrtGetApiBase' "$symbols_file" || die "ORT core does not export OrtGetApiBase"
+  grep -Fq '_OrtSessionOptionsAppendExecutionProvider_CoreML' "$symbols_file" ||
+    die "ORT core does not include CoreML EP"
+
+  if grep -Fq -- '-Wunguarded-availability-new' "$build_log"; then
+    die "macOS build emitted an unguarded runtime availability warning"
+  fi
 
   while IFS= read -r -d '' library; do
     actual_min="$(otool -l "$library" | awk '$1 == "minos" { print $2; exit }')"
@@ -162,7 +191,11 @@ else
   done < <(find "$dist_dir/package" -type f -name '*.so*' -print0)
 fi
 
-asset="$dist_dir/onnxruntime-webgpu-$target-$ORT_VERSION-pilot.$PACKAGE_REVISION.tar.gz"
+if [[ "$target" == macos-* ]]; then
+  asset="$dist_dir/onnxruntime-coreml-$target-$ORT_VERSION-pilot.$PACKAGE_REVISION.tar.gz"
+else
+  asset="$dist_dir/onnxruntime-webgpu-$target-$ORT_VERSION-pilot.$PACKAGE_REVISION.tar.gz"
+fi
 tar -C "$dist_dir/package" -czf "$asset" .
 write_checksum "$asset"
 cp "$dist_dir/package/manifest.env" "$asset.manifest.env"
