@@ -102,14 +102,33 @@ jobs:
             --name ort-packaging-smoke \
             --package "system-images;android-$ANDROID_TARGET_SDK;google_apis;x86_64"
           [ ! -e /dev/kvm ] || sudo chmod 666 /dev/kvm
+          emulator_log="$RUNNER_TEMP/android-emulator.log"
+          export ANDROID_SERIAL=emulator-5554
+          dump_emulator_diagnostics() {
+            echo "--- Android emulator diagnostics ---" >&2
+            adb devices -l >&2 || true
+            tail -n 300 "$emulator_log" >&2 || true
+          }
+          cleanup_emulator() {
+            status=$?
+            trap - EXIT
+            if [ "$status" -ne 0 ]; then
+              dump_emulator_diagnostics
+            fi
+            timeout 10 adb emu kill >/dev/null 2>&1 || true
+            exit "$status"
+          }
+          trap cleanup_emulator EXIT
+          adb start-server
           nohup "$ANDROID_HOME/emulator/emulator" \
             -avd ort-packaging-smoke \
+            -port 5554 \
             -no-window -noaudio -no-boot-anim -no-snapshot \
-            -gpu swiftshader_indirect >"$RUNNER_TEMP/android-emulator.log" 2>&1 &
-          adb wait-for-device
+            -gpu swiftshader >"$emulator_log" 2>&1 &
+          timeout 180 adb wait-for-device
           # shellcheck disable=SC2016
           timeout 600 bash -c 'until [ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d "\r")" = "1" ]; do sleep 5; done'
-          scripts/test-android-runtime.sh x86_64
+          timeout 300 scripts/test-android-runtime.sh x86_64
 
       - uses: actions/upload-artifact@v4
         with:
