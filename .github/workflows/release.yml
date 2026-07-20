@@ -390,7 +390,6 @@ jobs:
           - target: windows-arm64
             runner: windows-11-arm
             cmake_hash: 86937dc89deabe0ff2a08fe198fcfc70764476b865cca4c6dc3bfc7fb9f7d44d4929af919e26e84aaedef17ad01ffb9683e42c39cb38b409100f723bc5ef1cc0
-            ccache_hash: ea4297d699fba4639ec1f5fd506b8900deb8938ac27734ba77ccfc506bfbe245d0b9b89d4fc0a0b3f40d12f29ac07164ae84f5cfbfb8c84843e55d83bc0d7c0d
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -400,10 +399,23 @@ jobs:
           path: onnxruntime
           fetch-depth: 1
       - uses: microsoft/onnxruntime-github-actions/setup-build-tools@8bad63a3c05d448311dfa8e5f531171c97471aa1 # v0.0.12
+        if: matrix.target != 'windows-arm64'
         with:
           ccache-version: ${{ env.CCACHE_VERSION }}
           ccache-hash: ${{ matrix.ccache_hash }}
           add-ccache-to-path: "false"
+          vcpkg-version: "2025.08.27"
+          vcpkg-hash: 9a4b32849792e13bee1d24726f073b3881acae4165206ddf1a6378e44a4ddd05b3ee93f55ff46d8e8873b3cbcd06606212989e248f0bd615a5bf365070074079
+          cmake-version: "3.31.8"
+          cmake-hash: ${{ matrix.cmake_hash }}
+          add-cmake-to-path: "true"
+          disable-terrapin: "true"
+      # v0.0.12 constructs a nonexistent cmake-*-windows-aarch64 URL. v0.0.9
+      # is retained only for this runner, which v0.0.9 (and pilot.6) proved uses
+      # the valid Windows ARM64 CMake archive.
+      - uses: microsoft/onnxruntime-github-actions/setup-build-tools@d19341fb036c43a947a2c0e4a53ad4d15e10bc5c # v0.0.9
+        if: matrix.target == 'windows-arm64'
+        with:
           vcpkg-version: "2025.08.27"
           vcpkg-hash: 9a4b32849792e13bee1d24726f073b3881acae4165206ddf1a6378e44a4ddd05b3ee93f55ff46d8e8873b3cbcd06606212989e248f0bd615a5bf365070074079
           cmake-version: "3.31.8"
