@@ -42,7 +42,7 @@ for aar in "$@"; do
   done < <(find "$overlay" -type f -print0)
 done
 
-asset="$output_dir/onnxruntime-webgpu-android-$ORT_VERSION-pilot.$PACKAGE_REVISION.aar"
+asset="$output_dir/onnxruntime-webgpu-android-$ORT_VERSION-$(package_label).aar"
 (cd "$work_dir/base" && zip -q -r "$asset" .)
 write_checksum "$asset"
 write_manifest "$asset.manifest.env" "android-universal" "built-in" "WebGPU,XNNPACK,CPU"

@@ -15,6 +15,11 @@ if ($target -notin @("windows-x64", "windows-arm64")) {
 $ortSource = if ($env:ORT_SOURCE_DIR) { $env:ORT_SOURCE_DIR } else { Join-Path $RepoRoot "onnxruntime" }
 $buildRoot = if ($env:BUILD_ROOT) { $env:BUILD_ROOT } else { Join-Path $RepoRoot "build" }
 $distRoot = if ($env:DIST_ROOT) { $env:DIST_ROOT } else { Join-Path $RepoRoot "dist" }
+$packageLabel = switch ($versions.PACKAGE_CHANNEL) {
+    "pilot" { "pilot.$($versions.PACKAGE_REVISION)"; break }
+    "stable" { "r$($versions.PACKAGE_REVISION)"; break }
+    default { throw "unsupported PACKAGE_CHANNEL: $($versions.PACKAGE_CHANNEL)" }
+}
 $buildDir = Join-Path $buildRoot $target
 $distDir = Join-Path $distRoot $target
 $packageDir = Join-Path $distDir "package"
@@ -152,12 +157,16 @@ if (Test-Path (Join-Path $ortSource "ThirdPartyNotices.txt")) {
 }
 
 $commit = git -C $ortSource rev-parse HEAD
+$packagingCommit = git -C $RepoRoot rev-parse HEAD
 $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
 $manifestText = (@(
     "ORT_REF=$($versions.ORT_REF)",
     "ORT_VERSION=$($versions.ORT_VERSION)",
     "ORT_COMMIT=$commit",
+    "PACKAGING_COMMIT=$packagingCommit",
+    "PACKAGE_CHANNEL=$($versions.PACKAGE_CHANNEL)",
     "PACKAGE_REVISION=$($versions.PACKAGE_REVISION)",
+    "PACKAGE_LABEL=$packageLabel",
     "TARGET=$target",
     "ORT_CORE_INCLUDED=1",
     "WEBGPU_LINKAGE=plugin-shared",
@@ -167,7 +176,7 @@ $manifestText = (@(
 $packageManifest = Join-Path $packageDir "manifest.env"
 [System.IO.File]::WriteAllText($packageManifest, $manifestText, $utf8NoBom)
 
-$assetName = "onnxruntime-webgpu-$target-$($versions.ORT_VERSION)-pilot.$($versions.PACKAGE_REVISION).zip"
+$assetName = "onnxruntime-webgpu-$target-$($versions.ORT_VERSION)-$packageLabel.zip"
 $asset = Join-Path $distDir $assetName
 Compress-Archive -Path (Join-Path $packageDir "*") -DestinationPath $asset
 $hash = (Get-FileHash $asset -Algorithm SHA256).Hash.ToLowerInvariant()

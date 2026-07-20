@@ -48,6 +48,22 @@ write_checksum() {
   printf '%s\n' "$(sha256_file "$file")" >"$file.sha256"
 }
 
+package_label() {
+  case "$PACKAGE_CHANNEL" in
+    pilot) printf 'pilot.%s' "$PACKAGE_REVISION" ;;
+    stable) printf 'r%s' "$PACKAGE_REVISION" ;;
+    *) die "unsupported PACKAGE_CHANNEL: $PACKAGE_CHANNEL" ;;
+  esac
+}
+
+package_release_tag() {
+  printf 'ort-%s-%s' "$ORT_VERSION" "$(package_label)"
+}
+
+packaging_commit() {
+  git -C "$REPO_ROOT" rev-parse HEAD
+}
+
 ort_commit() {
   git -C "$ORT_SOURCE_DIR" rev-parse HEAD
 }
@@ -61,7 +77,10 @@ write_manifest() {
     printf 'ORT_REF=%s\n' "$ORT_REF"
     printf 'ORT_VERSION=%s\n' "$ORT_VERSION"
     printf 'ORT_COMMIT=%s\n' "$(ort_commit)"
+    printf 'PACKAGING_COMMIT=%s\n' "$(packaging_commit)"
+    printf 'PACKAGE_CHANNEL=%s\n' "$PACKAGE_CHANNEL"
     printf 'PACKAGE_REVISION=%s\n' "$PACKAGE_REVISION"
+    printf 'PACKAGE_LABEL=%s\n' "$(package_label)"
     printf 'TARGET=%s\n' "$target"
     printf 'ORT_CORE_INCLUDED=1\n'
     printf 'WEBGPU_LINKAGE=%s\n' "$linkage"

@@ -192,9 +192,9 @@ else
 fi
 
 if [[ "$target" == macos-* ]]; then
-  asset="$dist_dir/onnxruntime-coreml-$target-$ORT_VERSION-pilot.$PACKAGE_REVISION.tar.gz"
+  asset="$dist_dir/onnxruntime-coreml-$target-$ORT_VERSION-$(package_label).tar.gz"
 else
-  asset="$dist_dir/onnxruntime-webgpu-$target-$ORT_VERSION-pilot.$PACKAGE_REVISION.tar.gz"
+  asset="$dist_dir/onnxruntime-webgpu-$target-$ORT_VERSION-$(package_label).tar.gz"
 fi
 tar -C "$dist_dir/package" -czf "$asset" .
 write_checksum "$asset"

@@ -102,8 +102,12 @@ for binary in "${framework_binaries[@]}"; do
 
   min_versions="$(otool -l "$binary" | awk '$1 == "minos" { print $2 }' | sort -u)"
   [ "$min_versions" = "$IOS_MIN_VERSION" ] || die "unexpected iOS deployment target in $binary: ${min_versions:-missing}"
-  grep -q '_OrtGetApiBase' < <(nm -gU "$binary") || die "ORT core does not export OrtGetApiBase"
-  grep -q '_OrtSessionOptionsAppendExecutionProvider_CoreML' < <(nm -gU "$binary") || die "ORT core does not include CoreML EP"
+  framework_dir="$(dirname "$binary")"
+  slice_name="$(basename "$(dirname "$framework_dir")")"
+  symbols_file="$build_dir/$slice_name-symbols.txt"
+  nm -gU "$binary" >"$symbols_file"
+  grep -Fq '_OrtGetApiBase' "$symbols_file" || die "ORT core does not export OrtGetApiBase"
+  grep -Fq '_OrtSessionOptionsAppendExecutionProvider_CoreML' "$symbols_file" || die "ORT core does not include CoreML EP"
 done
 
 cp -R "$xcframework" "$package_dir/"
@@ -112,7 +116,7 @@ cp "$ORT_SOURCE_DIR/LICENSE" "$package_dir/ONNXRUNTIME-LICENSE"
 [ -f "$build_dir/xcframework_info.json" ] && cp "$build_dir/xcframework_info.json" "$package_dir/"
 write_manifest "$package_dir/manifest.env" "ios" "disabled" "CoreML,CPU"
 
-asset="$dist_dir/onnxruntime-coreml-ios-$ORT_VERSION-pilot.$PACKAGE_REVISION.zip"
+asset="$dist_dir/onnxruntime-coreml-ios-$ORT_VERSION-$(package_label).zip"
 (
   cd "$package_dir"
   COPYFILE_DISABLE=1 zip -qry "$asset" .
