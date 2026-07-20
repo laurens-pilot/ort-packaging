@@ -1,0 +1,73 @@
+diff --git a/onnxruntime/core/providers/coreml/model/model.mm b/onnxruntime/core/providers/coreml/model/model.mm
+index 0000000..0000000 100644
+--- a/onnxruntime/core/providers/coreml/model/model.mm
++++ b/onnxruntime/core/providers/coreml/model/model.mm
+@@ -121,7 +121,12 @@ Status CreateInputFeatureProvider(
+         break;
+       }
+       case ONNX_NAMESPACE::TensorProto_DataType_FLOAT16: {
+-        data_type = MLMultiArrayDataTypeFloat16;
++        if (@available(macOS 12.0, iOS 16.0, *)) {
++          data_type = MLMultiArrayDataTypeFloat16;
++        } else {
++          return ORT_MAKE_STATUS(ONNXRUNTIME, FAIL,
++                                 "CoreML float16 inputs require macOS 12.0 or iOS 16.0 or later");
++        }
+         break;
+       }
+       case ONNX_NAMESPACE::TensorProto_DataType_INT32: {
+@@ -409,14 +414,23 @@
+-void ConfigureOptimizationHints(MLModelConfiguration* config, const CoreMLOptions& coreml_options) {
++Status ConfigureOptimizationHints(MLModelConfiguration* config, const CoreMLOptions& coreml_options) {
++  const bool use_fast_prediction = coreml_options.UseStrategy("FastPrediction");
++  const bool use_default = coreml_options.UseStrategy("Default");
++  if (!use_fast_prediction && !use_default) {
++    return Status::OK();
++  }
++
+ #if HAS_COREMLOPTIMIZATIONHINT
+-  MLOptimizationHints* optimizationHints = [[MLOptimizationHints alloc] init];
+-  if (coreml_options.UseStrategy("FastPrediction")) {
+-    optimizationHints.specializationStrategy = MLSpecializationStrategyFastPrediction;
+-    config.optimizationHints = optimizationHints;
+-  } else if (coreml_options.UseStrategy("Default")) {
+-    optimizationHints.specializationStrategy = MLSpecializationStrategyDefault;
++  if (@available(macOS 15.0, iOS 18.0, *)) {
++    MLOptimizationHints* optimizationHints = [[MLOptimizationHints alloc] init];
++    if (use_fast_prediction) {
++      optimizationHints.specializationStrategy = MLSpecializationStrategyFastPrediction;
++    } else {
++      optimizationHints.specializationStrategy = MLSpecializationStrategyDefault;
++    }
+     config.optimizationHints = optimizationHints;
+-  } else {
+-    // not set
++    return Status::OK();
+   }
+ #endif
++
++  return ORT_MAKE_STATUS(ONNXRUNTIME, FAIL,
++                         "CoreML specialization strategies require macOS 15.0 or iOS 18.0 or later");
+ }
+@@ -564,7 +578,12 @@ Status Execution::LoadModel() {
+       } else if (coreml_compute_unit & COREML_FLAG_USE_CPU_AND_GPU) {
+         config.computeUnits = MLComputeUnitsCPUAndGPU;
+       } else if (coreml_compute_unit & COREML_FLAG_ONLY_ENABLE_DEVICE_WITH_ANE) {
+-        config.computeUnits = MLComputeUnitsCPUAndNeuralEngine;  // Apple Neural Engine
++        if (@available(macOS 13.0, iOS 16.0, *)) {
++          config.computeUnits = MLComputeUnitsCPUAndNeuralEngine;  // Apple Neural Engine
++        } else {
++          return ORT_MAKE_STATUS(ONNXRUNTIME, FAIL,
++                                 "CoreML ANE-only execution requires macOS 13.0 or iOS 16.0 or later");
++        }
+       } else {
+         config.computeUnits = MLComputeUnitsAll;
+       }
+@@ -585,4 +604,4 @@ Status Execution::LoadModel() {
+       // Set the specialization strategy to FastPrediction  for macOS 10.15+
+       if (HAS_COREML8_OR_LATER) {
+-        ConfigureOptimizationHints(config, coreml_options_);
++        ORT_RETURN_IF_ERROR(ConfigureOptimizationHints(config, coreml_options_));
+       } else {
+         LOGS(logger_, WARNING) << "iOS 17.4+/macOS 14.4+ or later is required to ConfigureOptimizationHints";
+       }

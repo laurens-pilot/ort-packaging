@@ -1,64 +1,77 @@
 # Custom ONNX Runtime Packaging
 
-Builds pinned, self-contained ONNX Runtime packages for Android, iOS, and desktop without depending on Microsoft-provided binaries.
+Builds pinned, self-contained ONNX Runtime runtime packages for Android, iOS, Linux, macOS, and Windows without consuming Microsoft-provided ONNX Runtime binaries. The current upstream base is **ONNX Runtime 1.27.0** from `v1.27.0`; package-channel and toolchain pins live in [`versions.env`](versions.env).
 
-Current build: **ONNX Runtime 1.27.0** from upstream tag `v1.27.0`. Version and toolchain pins are defined in [`versions.env`](versions.env).
+This repository's release tags describe a **custom packaging** of upstream ONNX Runtime, not an upstream Microsoft release. A stable package revision is named `ort-<upstream-version>-r<revision>`; the first stable release is therefore `ort-1.27.0-r1`.
 
-## What This Produces
+## Packages
 
-| Platform | Architectures | Contents |
-| --- | --- | --- |
-| Android | arm64-v8a, armeabi-v7a, x86_64 | ABI-specific and universal AARs with ORT, Java/JNI, WebGPU, XNNPACK, and CPU fallback |
-| iOS | ARM64 | Static XCFramework with ORT, CoreML, and CPU fallback; deployment target 15.1 |
-| Linux | x64, ARM64 | ORT shared runtime and WebGPU plugin |
-| macOS | Intel x64, Apple Silicon ARM64 | ORT shared runtime and WebGPU plugin |
-| Windows | x64, ARM64 | ORT runtime, WebGPU plugin, and required DXC DLLs |
+| Platform | Architectures | Asset family | Contents |
+| --- | --- | --- | --- |
+| Android | arm64-v8a, armeabi-v7a, x86_64 | `onnxruntime-webgpu-android-*` | API 24+ ABI-specific and universal AARs with ORT, Java/JNI, built-in WebGPU, XNNPACK, and CPU fallback |
+| iOS | ARM64 device and Apple Silicon Simulator | `onnxruntime-coreml-ios-*` | Static XCFramework with CoreML and CPU; deployment target 15.1 |
+| Linux | x64, ARM64 | `onnxruntime-webgpu-linux-*` | Ubuntu 22.04-compatible ORT runtime plus a shared WebGPU plugin |
+| macOS | Intel x64, Apple Silicon ARM64 | `onnxruntime-coreml-macos-*` | CoreML-enabled ORT runtime with CPU fallback; deployment target 13.3; no WebGPU plugin |
+| Windows | x64, ARM64 | `onnxruntime-webgpu-windows-*` | ORT runtime, WebGPU plugin, required DXC DLLs, and DXC licences |
 
-The Android AAR packages WebGPU into the runtime and replaces `onnxruntime-android`. The iOS artifact replaces the official C XCFramework and requires linking `CoreML` and `c++`. Desktop archives contain a matching ORT core and WebGPU plugin built from the same source revision; register the plugin before creating WebGPU sessions.
+The provider in an asset name is intentional: Android/Linux/Windows support WebGPU, while Apple packages intentionally use CoreML rather than WebGPU. Do not mix a packaged runtime, plugin, or headers with another ONNX Runtime build.
 
-Do not mix these packages with another ONNX Runtime build.
+## Consumer requirements
 
-## Repository Layout
+- Android: the AAR has a package minimum of API 24. WebGPU still depends on the physical device's Android/Vulkan GPU support; CPU and XNNPACK remain fallbacks.
+- iOS: link `Foundation`, weak-link `CoreML`, and link `c++`. CPU and standard CoreML usage support iOS 15.1. CoreML float16 inputs and ANE-only execution require iOS 16+, while CoreML specialization strategies require iOS 18+ and fail with a clear runtime error on older systems.
+- macOS: link `Foundation`, weak-link `CoreML`, and target macOS 13.3+. CoreML is built into the core runtime; there is no WebGPU plugin to register.
+- Linux: install a compatible Vulkan loader and driver for WebGPU. The package ABI is constrained to Ubuntu 22.04-era GLIBC/GLIBCXX versions, but GPU-driver correctness and performance remain environment-specific.
+- Windows: install the Microsoft Visual C++ 2015–2022 runtime, as required by Microsoft's own ONNX Runtime binaries. Keep the DXC DLLs that ship in the archive beside the ORT runtime and WebGPU plugin.
 
-- `versions.env`: ONNX Runtime and toolchain pins
+iOS frameworks include their public headers. Linux, macOS, and Windows archives are runtime packages: C/C++ consumers should obtain the matching public headers from the pinned upstream source revision (or vendor them with their own build) rather than mixing headers from another ORT version.
+
+For Linux and Windows, register the shared WebGPU plugin and select an EP device through ORT's V2 device API or automatic device selection. The legacy built-in WebGPU registration API does not load plugin EPs.
+
+## Repository layout
+
+- `versions.env`: upstream version, release channel/revision, and toolchain pins
 - `config/`: Android and iOS build configurations
-- `scripts/`: platform build and packaging entrypoints
-- `patches/`: reviewable upstream build-system patches
-- `.github/workflows/release.yml`: native build and release matrix
+- `scripts/`: platform build, packaging, and packaged-runtime smoke-test entrypoints
+- `patches/`: reviewable upstream compatibility patches; see [`PATCHES.md`](PATCHES.md)
+- `tests/`: portable packaged-runtime inference smoke tests
+- [`RELEASE-CHECKLIST.md`](RELEASE-CHECKLIST.md): required stable-release promotion steps
+- `.github/workflows/release.yml`: native build and immutable-release matrix
 
-Generated files are written to `build/` and `dist/`, which are ignored by Git.
+Local scripts write to `build/` and `dist/` by default. CI sets the equivalent hidden directories `.build/` and `.dist/`; all four are ignored by Git.
 
-## CI And Releases
+## CI and releases
 
-The release workflow builds all targets on native GitHub-hosted runners. Android ABIs are built separately and then merged into a universal AAR. iOS is distributed as a static XCFramework for Apple Silicon development hosts and ARM64 devices; Intel iOS Simulator hosts are not supported.
+The release workflow builds every target on its native GitHub-hosted runner. Android ABIs are built independently and merged into a universal AAR. iOS is distributed for ARM64 devices and Apple Silicon Simulator hosts; Intel Simulator hosts are not supported.
+
+`versions.env` is the release source of truth. The workflow derives the required tag from `ORT_VERSION`, `PACKAGE_CHANNEL`, and `PACKAGE_REVISION`; a full release rejects a mismatched tag, a mismatched prerelease flag, or any ref other than `main` before starting platform builds.
+
+For the stable r1 release:
 
 ```sh
 gh workflow run release.yml \
   --repo laurens-pilot/ort-packaging \
-  -f tag=ort-1.27.0-webgpu-pilot.3 \
-  -f ort_ref=v1.27.0 \
-  -f prerelease=true \
+  --ref main \
+  -f tag=ort-1.27.0-r1 \
+  -f prerelease=false \
   -f scope=all
 ```
 
-Use `scope=windows` for a Windows-only build probe. Probe runs do not publish releases.
+Use `scope=windows` for a Windows-only probe. Probe runs do not publish a release and may omit the tag.
 
-Release tags are immutable. Packaging-only changes increment `PACKAGE_REVISION` in `versions.env`.
+GitHub release immutability must be enabled under **Settings → General → Releases**. The workflow rejects an existing tag and verifies that the completed release is immutable with the expected asset count.
 
-## Release Verification
+## Verification and provenance
 
-Every binary asset includes:
+Every binary asset includes a `.sha256` checksum and `.manifest.env` file. Manifests record the upstream ref and commit, packaging commit, package channel/revision/label, target, provider topology, and build configuration. The release also includes `SHA256SUMS` and `build-provenance.json`.
 
-- a `.sha256` checksum;
-- a `.manifest.env` file identifying the ORT source and target.
-
-The release also includes `SHA256SUMS`. CI verifies all checksums and manifests before publishing.
+Custom-built binaries are stripped of or packaged without debug-symbol data. Linux and Android builds additionally reject debug/symbol-table sections and executable stacks. Archives contain the ONNX Runtime licence and third-party notices; Android AARs store them under `META-INF/`. Windows archives include the licence files shipped with the pinned DXC runtime.
 
 Example:
 
 ```sh
-tag=ort-1.27.0-webgpu-pilot.3
-asset=onnxruntime-webgpu-android-1.27.0-pilot.3.aar
+tag=ort-1.27.0-r1
+asset=onnxruntime-webgpu-android-1.27.0-r1.aar
 base=https://github.com/laurens-pilot/ort-packaging/releases/download/$tag
 
 curl -fL -o "$asset" "$base/$asset"
@@ -66,12 +79,12 @@ curl -fL -o "$asset.sha256" "$base/$asset.sha256"
 printf '%s  %s\n' "$(cat "$asset.sha256")" "$asset" | sha256sum -c -
 ```
 
-Always pin an immutable release tag and checksum downstream.
+Always pin a release tag and checksum downstream.
 
-## Validation Scope
+## Validation scope
 
-CI verifies package structure, native architectures, required exports, Android JNI contents, and checksums. It does not run inference or benchmark GPU performance.
+CI verifies package structure, native architectures, required exports, Android JNI contents, checksums, provenance metadata, and packaged runtime loading. It runs CPU and WebGPU inference on native Linux and Windows x64/ARM64 runners, using Mesa's software Vulkan driver on Linux and D3D12 on Windows. It runs CPU and CoreML inference on native macOS x64/ARM64 runners and in an ARM64 iOS Simulator, plus packaged CPU inference in an Android x86_64 emulator.
 
-Releases remain prereleases until representative-device correctness and performance testing is completed downstream.
+Hosted Android emulators cannot exercise WebGPU without a host GPU. Android WebGPU and Android ARM device ABIs require representative physical-device validation before a stable release; iOS device-slice and vendor-GPU performance validation are also downstream release criteria. Smoke tests prove runtime loading and basic provider inference, not application-specific operator coverage or performance.
 
-ONNX Runtime and bundled third-party components retain their upstream licenses. Runtime archives include the applicable license and notices.
+ONNX Runtime and bundled third-party components retain their upstream licences. Runtime archives include the applicable licence and notices.

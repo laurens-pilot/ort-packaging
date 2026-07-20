@@ -1,6 +1,6 @@
 {
   "build_abis": ["arm64-v8a"],
-  "android_min_sdk_version": 26,
+  "android_min_sdk_version": 24,
   "android_target_sdk_version": 35,
   "build_params": [
     "--android",
