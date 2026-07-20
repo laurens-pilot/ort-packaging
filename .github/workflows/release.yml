@@ -28,6 +28,9 @@ env:
   ORT_SOURCE_DIR: ${{ github.workspace }}/onnxruntime
   BUILD_ROOT: ${{ github.workspace }}/.build
   DIST_ROOT: ${{ github.workspace }}/.dist
+  CCACHE_VERSION: "4.13"
+  CCACHE_LINUX_X64_SHA512: 8c0e218c6aff145a8e2b4a471d9c0d206716b8f1a1b21492e3e4ac685f9488a740d9533fbc0dcb9c372ff3a8782911956af3315bce86a14352db83774c4007b9
+  CCACHE_MACOS_SHA512: 6840fb45d3b6496580e3d57216b7ada758ed2b325cd0258414a93b733252a00c3c9e2fa67a9db5a4d79c16028a807235e3afa507c25665253b5d207f8113ab7f
 
 jobs:
   release-meta:
@@ -106,6 +109,9 @@ jobs:
 
       - uses: microsoft/onnxruntime-github-actions/setup-build-tools@8bad63a3c05d448311dfa8e5f531171c97471aa1 # v0.0.12
         with:
+          ccache-version: ${{ env.CCACHE_VERSION }}
+          ccache-hash: ${{ env.CCACHE_LINUX_X64_SHA512 }}
+          add-ccache-to-path: "false"
           vcpkg-version: "2025.08.27"
           vcpkg-hash: 9a4b32849792e13bee1d24726f073b3881acae4165206ddf1a6378e44a4ddd05b3ee93f55ff46d8e8873b3cbcd06606212989e248f0bd615a5bf365070074079
           cmake-version: "3.31.8"
@@ -253,6 +259,9 @@ jobs:
 
       - uses: microsoft/onnxruntime-github-actions/setup-build-tools@8bad63a3c05d448311dfa8e5f531171c97471aa1 # v0.0.12
         with:
+          ccache-version: ${{ env.CCACHE_VERSION }}
+          ccache-hash: ${{ env.CCACHE_MACOS_SHA512 }}
+          add-ccache-to-path: "false"
           vcpkg-version: "2025.08.27"
           vcpkg-hash: 9a4b32849792e13bee1d24726f073b3881acae4165206ddf1a6378e44a4ddd05b3ee93f55ff46d8e8873b3cbcd06606212989e248f0bd615a5bf365070074079
           cmake-version: "3.31.8"
@@ -294,15 +303,19 @@ jobs:
           - target: linux-x64
             runner: ubuntu-22.04
             cmake_hash: 7939260931098c3f00d2b36de3bee6a0ee3bcae2dba001598c492ed5c82d295c9aa9969654f1ff937fec4d71679541238baaa648c5246f36e14f28f0a62337a0
+            ccache_hash: 8c0e218c6aff145a8e2b4a471d9c0d206716b8f1a1b21492e3e4ac685f9488a740d9533fbc0dcb9c372ff3a8782911956af3315bce86a14352db83774c4007b9
           - target: linux-arm64
             runner: ubuntu-22.04-arm
             cmake_hash: 8eeb07e966a5340c122979dd2e371708a78adccc85200b22bc7e66028e65513bce5ced6c37fe65aedb94000d970186c5c7562d1ab3dbda911061de46b75345d9
+            ccache_hash: ff52299de4253ea66ba39ebb064744fe7cd80e6325a05675cd856e5472883fe0c977f04ffba8e26c06beaa6efe8f3318ae6e0d85ada5bba58ca5228feec2f550
           - target: macos-x64
             runner: macos-15-intel
             cmake_hash: 99cc9c63ae49f21253efb5921de2ba84ce136018abf08632c92c060ba91d552e0f6acc214e9ba8123dee0cf6d1cf089ca389e321879fd9d719a60d975bcffcc8
+            ccache_hash: 6840fb45d3b6496580e3d57216b7ada758ed2b325cd0258414a93b733252a00c3c9e2fa67a9db5a4d79c16028a807235e3afa507c25665253b5d207f8113ab7f
           - target: macos-arm64
             runner: macos-15
             cmake_hash: 99cc9c63ae49f21253efb5921de2ba84ce136018abf08632c92c060ba91d552e0f6acc214e9ba8123dee0cf6d1cf089ca389e321879fd9d719a60d975bcffcc8
+            ccache_hash: 6840fb45d3b6496580e3d57216b7ada758ed2b325cd0258414a93b733252a00c3c9e2fa67a9db5a4d79c16028a807235e3afa507c25665253b5d207f8113ab7f
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -313,6 +326,9 @@ jobs:
           fetch-depth: 1
       - uses: microsoft/onnxruntime-github-actions/setup-build-tools@8bad63a3c05d448311dfa8e5f531171c97471aa1 # v0.0.12
         with:
+          ccache-version: ${{ env.CCACHE_VERSION }}
+          ccache-hash: ${{ matrix.ccache_hash }}
+          add-ccache-to-path: "false"
           vcpkg-version: "2025.08.27"
           vcpkg-hash: 9a4b32849792e13bee1d24726f073b3881acae4165206ddf1a6378e44a4ddd05b3ee93f55ff46d8e8873b3cbcd06606212989e248f0bd615a5bf365070074079
           cmake-version: "3.31.8"
@@ -370,9 +386,11 @@ jobs:
           - target: windows-x64
             runner: windows-2022
             cmake_hash: 807b774fcb12defff8ce869e602fc5b6279d5b7bf7229ebcf3f7490da3f887d516b9c49a00d50f9179e552ed8737d19835a19ef8f366d1ffda1ad6f3352a90c2
+            ccache_hash: 205f3b974d4af37065ff54c7030f3372424d8d4eea8c3dd8a39f6625ce044aaa66aadecbfbc714c0d34eb7f96cf92b9633a9b9138858f387a1bfb4ef78c95b5c
           - target: windows-arm64
             runner: windows-11-arm
             cmake_hash: 86937dc89deabe0ff2a08fe198fcfc70764476b865cca4c6dc3bfc7fb9f7d44d4929af919e26e84aaedef17ad01ffb9683e42c39cb38b409100f723bc5ef1cc0
+            ccache_hash: ea4297d699fba4639ec1f5fd506b8900deb8938ac27734ba77ccfc506bfbe245d0b9b89d4fc0a0b3f40d12f29ac07164ae84f5cfbfb8c84843e55d83bc0d7c0d
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -383,6 +401,9 @@ jobs:
           fetch-depth: 1
       - uses: microsoft/onnxruntime-github-actions/setup-build-tools@8bad63a3c05d448311dfa8e5f531171c97471aa1 # v0.0.12
         with:
+          ccache-version: ${{ env.CCACHE_VERSION }}
+          ccache-hash: ${{ matrix.ccache_hash }}
+          add-ccache-to-path: "false"
           vcpkg-version: "2025.08.27"
           vcpkg-hash: 9a4b32849792e13bee1d24726f073b3881acae4165206ddf1a6378e44a4ddd05b3ee93f55ff46d8e8873b3cbcd06606212989e248f0bd615a5bf365070074079
           cmake-version: "3.31.8"
