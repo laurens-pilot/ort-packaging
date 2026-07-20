@@ -9,7 +9,7 @@ This repository's release tags describe a **custom packaging** of upstream ONNX 
 | Platform | Architectures | Asset family | Contents |
 | --- | --- | --- | --- |
 | Android | arm64-v8a, armeabi-v7a, x86_64 | `onnxruntime-webgpu-android-*` | API 24+ ABI-specific and universal AARs with ORT, Java/JNI, built-in WebGPU, XNNPACK, and CPU fallback |
-| iOS | ARM64 device and Apple Silicon Simulator | `onnxruntime-coreml-ios-*` | Static XCFramework with CoreML and CPU; deployment target 15.1 |
+| iOS | ARM64 device and Apple Silicon Simulator | `onnxruntime-coreml-ios-*` | Static XCFramework plus pre-thinned Rust-linkable archives with CoreML and CPU; deployment target 15.1 |
 | Linux | x64, ARM64 | `onnxruntime-webgpu-linux-*` | Ubuntu 22.04-compatible ORT runtime plus a shared WebGPU plugin |
 | macOS | Intel x64, Apple Silicon ARM64 | `onnxruntime-coreml-macos-*` | CoreML-enabled ORT runtime with CPU fallback; deployment target 13.3; no WebGPU plugin |
 | Windows | x64, ARM64 | `onnxruntime-webgpu-windows-*` | ORT runtime, WebGPU plugin, required DXC DLLs, and DXC licences |
@@ -42,17 +42,17 @@ Local scripts write to `build/` and `dist/` by default. CI sets the equivalent h
 
 ## CI and releases
 
-The release workflow builds every target on its native GitHub-hosted runner. Android ABIs are built independently and merged into a universal AAR. iOS is distributed for ARM64 devices and Apple Silicon Simulator hosts; Intel Simulator hosts are not supported.
+The release workflow builds every target on its native GitHub-hosted runner. Android ABIs are built independently and merged into a universal AAR. iOS is distributed for ARM64 devices and Apple Silicon Simulator hosts; Intel Simulator hosts are not supported. The iOS ZIP retains the XCFramework and also contains `static-lib/ios-arm64/libonnxruntime.a` and `static-lib/ios-arm64-simulator/libonnxruntime.a` for consumers that require an ordinary static archive.
 
 `versions.env` is the release source of truth. The workflow derives the required tag from `ORT_VERSION`, `PACKAGE_CHANNEL`, and `PACKAGE_REVISION`; a full release rejects a mismatched tag, a mismatched prerelease flag, or any ref other than `main` before starting platform builds.
 
-For the stable r1 release:
+For the stable r2 release:
 
 ```sh
 gh workflow run release.yml \
   --repo laurens-pilot/ort-packaging \
   --ref main \
-  -f tag=ort-1.27.0-r1 \
+  -f tag=ort-1.27.0-r2 \
   -f prerelease=false \
   -f scope=all
 ```
@@ -70,8 +70,8 @@ Custom-built binaries are stripped of or packaged without debug-symbol data. Lin
 Example:
 
 ```sh
-tag=ort-1.27.0-r1
-asset=onnxruntime-webgpu-android-1.27.0-r1.aar
+tag=ort-1.27.0-r2
+asset=onnxruntime-webgpu-android-1.27.0-r2.aar
 base=https://github.com/laurens-pilot/ort-packaging/releases/download/$tag
 
 curl -fL -o "$asset" "$base/$asset"

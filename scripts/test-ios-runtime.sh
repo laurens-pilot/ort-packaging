@@ -11,10 +11,12 @@ require_cmd xcrun
 
 xcframework="$BUILD_ROOT/ios/framework_out/onnxruntime.xcframework"
 framework="$xcframework/ios-arm64-simulator/onnxruntime.framework"
+static_library="$DIST_ROOT/ios/package/static-lib/ios-arm64-simulator/libonnxruntime.a"
 model="$ORT_SOURCE_DIR/onnxruntime/test/testdata/mul_1.onnx"
 app_dir="$BUILD_ROOT/ios-runtime-smoke/ORT-Runtime-Smoke.app"
 require_dir "$framework"
 require_file "$framework/onnxruntime"
+require_file "$static_library"
 require_file "$model"
 
 rm -rf "$(dirname "$app_dir")"
@@ -29,8 +31,7 @@ xcrun --sdk iphonesimulator clang++ \
   -isysroot "$sdk_path" \
   -I "$framework/Headers" \
   "$REPO_ROOT/tests/ios-smoke.mm" \
-  -F "$(dirname "$framework")" \
-  -framework onnxruntime \
+  "$static_library" \
   -framework Foundation \
   -weak_framework CoreML \
   -o "$app_dir/runtime-smoke"
