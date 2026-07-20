@@ -108,7 +108,41 @@ for binary in "${framework_binaries[@]}"; do
   nm -gU "$binary" >"$symbols_file"
   grep -Fq '_OrtGetApiBase' "$symbols_file" || die "ORT core does not export OrtGetApiBase"
   grep -Fq '_OrtSessionOptionsAppendExecutionProvider_CoreML' "$symbols_file" || die "ORT core does not include CoreML EP"
+
+  static_library="$package_dir/static-lib/$slice_name/libonnxruntime.a"
+  mkdir -p "$(dirname "$static_library")"
+  lipo "$binary" -thin arm64 -output "$static_library"
+
+  lipo -info "$static_library" | grep -Fq 'Non-fat file' ||
+    die "pre-thinned iOS archive is still a universal binary: $static_library"
+  [ "$(lipo -archs "$static_library")" = arm64 ] ||
+    die "unexpected pre-thinned iOS archive architecture: $static_library"
+  if otool -l "$static_library" | grep -Fq 'segname __DWARF'; then
+    die "pre-thinned iOS archive contains DWARF sections: $static_library"
+  fi
+
+  static_min_versions="$(otool -l "$static_library" | awk '$1 == "minos" { print $2 }' | sort -u)"
+  [ "$static_min_versions" = "$IOS_MIN_VERSION" ] ||
+    die "unexpected deployment target in $static_library: ${static_min_versions:-missing}"
+  static_platforms="$(otool -l "$static_library" | awk '$1 == "platform" { print $2 }' | sort -u)"
+  case "$slice_name" in
+    ios-arm64) expected_platform=2 ;;
+    ios-arm64-simulator) expected_platform=7 ;;
+    *) die "unexpected iOS slice name: $slice_name" ;;
+  esac
+  [ "$static_platforms" = "$expected_platform" ] ||
+    die "unexpected Apple platform in $static_library: ${static_platforms:-missing}"
+
+  static_symbols_file="$build_dir/$slice_name-static-symbols.txt"
+  nm -gU "$static_library" >"$static_symbols_file"
+  grep -Fq '_OrtGetApiBase' "$static_symbols_file" ||
+    die "pre-thinned ORT archive does not export OrtGetApiBase"
+  grep -Fq '_OrtSessionOptionsAppendExecutionProvider_CoreML' "$static_symbols_file" ||
+    die "pre-thinned ORT archive does not include CoreML EP"
 done
+
+require_file "$package_dir/static-lib/ios-arm64/libonnxruntime.a"
+require_file "$package_dir/static-lib/ios-arm64-simulator/libonnxruntime.a"
 
 cp -R "$xcframework" "$package_dir/"
 cp "$ORT_SOURCE_DIR/LICENSE" "$package_dir/ONNXRUNTIME-LICENSE"
