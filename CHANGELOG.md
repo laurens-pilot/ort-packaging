@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.27.0-r3 — 2026-07-27
+
+- Package iOS as one static-library XCFramework whose device and ARM64 Simulator slices each contain `libonnxruntime.a` and public headers.
+- Remove the duplicate framework-wrapped archives and top-level `static-lib` copies from the iOS ZIP.
+- Add a provenance-preserving path for packaging-only releases to reuse verified binaries from an immutable source release without recompiling them.
+
 ## 1.27.0-r2 — 2026-07-20
 
 - Add pre-thinned device and ARM64 Simulator `libonnxruntime.a` archives to the iOS ZIP for Rust and other consumers that cannot link the XCFramework directly.

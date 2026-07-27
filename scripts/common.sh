@@ -65,6 +65,10 @@ packaging_commit() {
 }
 
 ort_commit() {
+  if [ -n "${ORT_COMMIT_OVERRIDE:-}" ]; then
+    printf '%s\n' "$ORT_COMMIT_OVERRIDE"
+    return
+  fi
   git -C "$ORT_SOURCE_DIR" rev-parse HEAD
 }
 
@@ -86,6 +90,13 @@ write_manifest() {
     printf 'WEBGPU_LINKAGE=%s\n' "$linkage"
     printf 'EXECUTION_PROVIDERS=%s\n' "$providers"
     printf 'BUILD_CONFIG=Release\n'
+    if [ -n "${REPACKAGE_SOURCE_TAG:-}" ]; then
+      [ -n "${REPACKAGE_SOURCE_ASSET:-}" ] || die "missing REPACKAGE_SOURCE_ASSET"
+      [ -n "${REPACKAGE_SOURCE_SHA256:-}" ] || die "missing REPACKAGE_SOURCE_SHA256"
+      printf 'REPACKAGE_SOURCE_TAG=%s\n' "$REPACKAGE_SOURCE_TAG"
+      printf 'REPACKAGE_SOURCE_ASSET=%s\n' "$REPACKAGE_SOURCE_ASSET"
+      printf 'REPACKAGE_SOURCE_SHA256=%s\n' "$REPACKAGE_SOURCE_SHA256"
+    fi
   } >"$path"
 }
 
