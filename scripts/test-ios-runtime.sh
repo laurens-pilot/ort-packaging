@@ -9,13 +9,14 @@ require_cmd codesign
 require_cmd python3
 require_cmd xcrun
 
-xcframework="$BUILD_ROOT/ios/framework_out/onnxruntime.xcframework"
-framework="$xcframework/ios-arm64-simulator/onnxruntime.framework"
-static_library="$DIST_ROOT/ios/package/static-lib/ios-arm64-simulator/libonnxruntime.a"
+package_dir="${IOS_PACKAGE_DIR:-$DIST_ROOT/ios/package}"
+xcframework="$package_dir/onnxruntime.xcframework"
+slice="$xcframework/ios-arm64-simulator"
+headers="$slice/Headers"
+static_library="$slice/libonnxruntime.a"
 model="$ORT_SOURCE_DIR/onnxruntime/test/testdata/mul_1.onnx"
 app_dir="$BUILD_ROOT/ios-runtime-smoke/ORT-Runtime-Smoke.app"
-require_dir "$framework"
-require_file "$framework/onnxruntime"
+require_dir "$headers"
 require_file "$static_library"
 require_file "$model"
 
@@ -29,7 +30,7 @@ xcrun --sdk iphonesimulator clang++ \
   -arch arm64 \
   -mios-simulator-version-min="$IOS_MIN_VERSION" \
   -isysroot "$sdk_path" \
-  -I "$framework/Headers" \
+  -I "$headers" \
   "$REPO_ROOT/tests/ios-smoke.mm" \
   "$static_library" \
   -framework Foundation \

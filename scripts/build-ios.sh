@@ -109,7 +109,7 @@ for binary in "${framework_binaries[@]}"; do
   grep -Fq '_OrtGetApiBase' "$symbols_file" || die "ORT core does not export OrtGetApiBase"
   grep -Fq '_OrtSessionOptionsAppendExecutionProvider_CoreML' "$symbols_file" || die "ORT core does not include CoreML EP"
 
-  static_library="$package_dir/static-lib/$slice_name/libonnxruntime.a"
+  static_library="$build_dir/static-lib/$slice_name/libonnxruntime.a"
   mkdir -p "$(dirname "$static_library")"
   lipo "$binary" -thin arm64 -output "$static_library"
 
@@ -141,10 +141,13 @@ for binary in "${framework_binaries[@]}"; do
     die "pre-thinned ORT archive does not include CoreML EP"
 done
 
-require_file "$package_dir/static-lib/ios-arm64/libonnxruntime.a"
-require_file "$package_dir/static-lib/ios-arm64-simulator/libonnxruntime.a"
+require_file "$build_dir/static-lib/ios-arm64/libonnxruntime.a"
+require_file "$build_dir/static-lib/ios-arm64-simulator/libonnxruntime.a"
 
-cp -R "$xcframework" "$package_dir/"
+"$SCRIPT_DIR/create-ios-static-xcframework.sh" \
+  "$xcframework" \
+  "$build_dir/static-lib" \
+  "$package_dir/onnxruntime.xcframework"
 cp "$ORT_SOURCE_DIR/LICENSE" "$package_dir/ONNXRUNTIME-LICENSE"
 [ -f "$ORT_SOURCE_DIR/ThirdPartyNotices.txt" ] && cp "$ORT_SOURCE_DIR/ThirdPartyNotices.txt" "$package_dir/"
 [ -f "$build_dir/xcframework_info.json" ] && cp "$build_dir/xcframework_info.json" "$package_dir/"
