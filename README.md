@@ -10,7 +10,7 @@ This repository's release tags describe a **custom packaging** of upstream ONNX 
 | --- | --- | --- | --- |
 | Android | arm64-v8a, armeabi-v7a, x86_64 | `onnxruntime-webgpu-android-*` | API 24+ ABI-specific and universal AARs with ORT, Java/JNI, built-in WebGPU, XNNPACK, and CPU fallback |
 | iOS | ARM64 device and Apple Silicon Simulator | `onnxruntime-coreml-ios-*` | Static-library XCFramework with CoreML and CPU; deployment target 15.1 |
-| Linux | x64, ARM64 | `onnxruntime-webgpu-linux-*` | Ubuntu 22.04-compatible ORT runtime plus a shared WebGPU plugin |
+| Linux | x64, ARM64 | `onnxruntime-webgpu-linux-*` | GLIBC 2.28-compatible ORT runtime plus a shared WebGPU plugin |
 | macOS | Intel x64, Apple Silicon ARM64 | `onnxruntime-coreml-macos-*` | CoreML-enabled ORT runtime with CPU fallback; deployment target 13.3; no WebGPU plugin |
 | Windows | x64, ARM64 | `onnxruntime-webgpu-windows-*` | ORT runtime, WebGPU plugin, required DXC DLLs, and DXC licences |
 
@@ -21,7 +21,7 @@ The provider in an asset name is intentional: Android/Linux/Windows support WebG
 - Android: the AAR has a package minimum of API 24. WebGPU still depends on the physical device's Android/Vulkan GPU support; CPU and XNNPACK remain fallbacks.
 - iOS: link `Foundation`, weak-link `CoreML`, and link `c++`. CPU and standard CoreML usage support iOS 15.1. CoreML float16 inputs and ANE-only execution require iOS 16+, while CoreML specialization strategies require iOS 18+ and fail with a clear runtime error on older systems.
 - macOS: link `Foundation`, weak-link `CoreML`, and target macOS 13.3+. CoreML is built into the core runtime; there is no WebGPU plugin to register.
-- Linux: install a compatible Vulkan loader and driver for WebGPU. The package ABI is constrained to Ubuntu 22.04-era GLIBC/GLIBCXX versions, but GPU-driver correctness and performance remain environment-specific.
+- Linux: install a compatible Vulkan loader and driver for WebGPU. The package ABI supports Ubuntu 20.04 and newer (GLIBC 2.28 maximum, GLIBCXX 3.4.28 maximum), but GPU-driver correctness and performance remain environment-specific.
 - Windows: install the Microsoft Visual C++ 2015–2022 runtime, as required by Microsoft's own ONNX Runtime binaries. Keep the DXC DLLs that ship in the archive beside the ORT runtime and WebGPU plugin.
 
 iOS frameworks include their public headers. Linux, macOS, and Windows archives are runtime packages: C/C++ consumers should obtain the matching public headers from the pinned upstream source revision (or vendor them with their own build) rather than mixing headers from another ORT version.
@@ -42,25 +42,25 @@ Local scripts write to `build/` and `dist/` by default. CI sets the equivalent h
 
 ## CI and releases
 
-The release workflow builds every target on its native GitHub-hosted runner. Android ABIs are built independently and merged into a universal AAR. iOS is distributed for ARM64 devices and Apple Silicon Simulator hosts; Intel Simulator hosts are not supported. Its XCFramework contains ordinary `libonnxruntime.a` slices and public headers, so Swift Package Manager and consumers that link the archive directly use the same single copy of the machine code.
+The release workflow builds every target on its native GitHub-hosted runner. Linux compilation runs in checksum-pinned PyPA `manylinux_2_28` job containers on native x64 and ARM64 hosts, decoupling the package ABI from the GitHub runner image. Android ABIs are built independently and merged into a universal AAR. iOS is distributed for ARM64 devices and Apple Silicon Simulator hosts; Intel Simulator hosts are not supported. Its XCFramework contains ordinary `libonnxruntime.a` slices and public headers, so Swift Package Manager and consumers that link the archive directly use the same single copy of the machine code.
 
 For a packaging-only correction, `scope=repackage` can derive a complete release from an existing immutable 35-asset release without recompiling native code. Android binaries are copied byte-for-byte, desktop archives receive updated package manifests, and the iOS static archives are rewrapped with `xcodebuild -create-xcframework`. Every resulting manifest records the source tag, asset name, and SHA-256, and CI runs the iOS CPU/CoreML smoke test against the new package structure.
 
-`versions.env` is the release source of truth. The workflow derives the required tag from `ORT_VERSION`, `PACKAGE_CHANNEL`, and `PACKAGE_REVISION`; a full release rejects a mismatched tag, a mismatched prerelease flag, or any ref other than `main` before starting platform builds.
+`versions.env` is the release source of truth. The workflow derives the required tag from `ORT_VERSION`, `PACKAGE_CHANNEL`, and `PACKAGE_REVISION`; a release rejects a mismatched tag, a mismatched prerelease flag, or any ref other than `main` before starting platform builds.
 
-For the packaging-only stable r3 release derived from r2:
+For a Linux-only stable release that rebuilds Linux while reusing verified non-Linux binaries from the preceding immutable release:
 
 ```sh
 gh workflow run release.yml \
   --repo laurens-pilot/ort-packaging \
   --ref main \
-  -f tag=ort-1.27.0-r3 \
-  -f source_tag=ort-1.27.0-r2 \
+  -f tag=ort-1.27.0-r4 \
+  -f source_tag=ort-1.27.0-r3 \
   -f prerelease=false \
-  -f scope=repackage
+  -f scope=linux
 ```
 
-Use `scope=all` for a fresh native build of every target or `scope=windows` for a Windows-only probe. Probe runs do not publish a release and may omit the tag.
+Use `scope=all` for a fresh native build of every target, `scope=repackage` for a packaging-only release, or `scope=windows` for a Windows-only probe. The `linux` scope requires a source release, rebuilds and tests both Linux architectures, and reuses the other platforms with per-asset provenance. Probe runs do not publish a release and may omit the tag.
 
 GitHub release immutability must be enabled under **Settings → General → Releases**. The workflow rejects an existing tag and verifies that the completed release is immutable with the expected asset count.
 

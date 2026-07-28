@@ -5,13 +5,22 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=common.sh
 source "$SCRIPT_DIR/common.sh"
 
-[ "$#" -eq 2 ] || die "usage: $0 <source-release-directory> <source-release-tag>"
+if [ "$#" -lt 2 ] || [ "$#" -gt 3 ]; then
+  die "usage: $0 <source-release-directory> <source-release-tag> [all|non-linux]"
+fi
 
 source_dir="$1"
 source_tag="$2"
+repackage_scope="${3:-all}"
 destination_label="$(package_label)"
 destination_tag="$(package_release_tag)"
 source_prefix="ort-$ORT_VERSION-"
+
+case "$repackage_scope" in
+  all) expected_binary_count=11 ;;
+  non-linux) expected_binary_count=9 ;;
+  *) die "unsupported repackage scope: $repackage_scope" ;;
+esac
 
 require_cmd cmp
 require_cmd python3
@@ -80,6 +89,17 @@ source_names=(
   "onnxruntime-webgpu-windows-x64-$ORT_VERSION-$source_label.zip"
 )
 
+if [ "$repackage_scope" = "non-linux" ]; then
+  non_linux_source_names=()
+  for source_name in "${source_names[@]}"; do
+    case "$source_name" in
+      onnxruntime-webgpu-linux-*) ;;
+      *) non_linux_source_names+=("$source_name") ;;
+    esac
+  done
+  source_names=("${non_linux_source_names[@]}")
+fi
+
 verify_source_asset() {
   local source_asset="$1"
   local source_manifest="$source_asset.manifest.env"
@@ -140,7 +160,10 @@ for source_name in "${source_names[@]}"; do
         die "source iOS internal and external manifests differ"
 
       require_dir "$source_package_dir/onnxruntime.xcframework"
-      require_dir "$source_package_dir/static-lib"
+      static_library_root="$source_package_dir/static-lib"
+      if [ ! -d "$static_library_root" ]; then
+        static_library_root="$source_package_dir/onnxruntime.xcframework"
+      fi
       cp "$source_package_dir/ONNXRUNTIME-LICENSE" "$package_dir/"
       [ ! -f "$source_package_dir/ThirdPartyNotices.txt" ] ||
         cp "$source_package_dir/ThirdPartyNotices.txt" "$package_dir/"
@@ -148,7 +171,7 @@ for source_name in "${source_names[@]}"; do
         cp "$source_package_dir/xcframework_info.json" "$package_dir/"
       "$SCRIPT_DIR/create-ios-static-xcframework.sh" \
         "$source_package_dir/onnxruntime.xcframework" \
-        "$source_package_dir/static-lib" \
+        "$static_library_root" \
         "$package_dir/onnxruntime.xcframework"
       write_manifest "$package_dir/manifest.env" "$target" "$linkage" "$providers"
       (
@@ -187,6 +210,7 @@ for source_name in "${source_names[@]}"; do
   log "repackaged $source_name as $destination_name"
 done
 
-[ "$(find "$dist_dir" -maxdepth 1 -type f | wc -l | tr -d '[:space:]')" -eq 33 ] ||
-  die "expected 33 repackaged asset files"
-log "repackaged 11 binary assets from $source_tag without native recompilation"
+expected_file_count=$((expected_binary_count * 3))
+[ "$(find "$dist_dir" -maxdepth 1 -type f | wc -l | tr -d '[:space:]')" -eq "$expected_file_count" ] ||
+  die "expected $expected_file_count repackaged asset files"
+log "repackaged $expected_binary_count binary assets from $source_tag without native recompilation"
