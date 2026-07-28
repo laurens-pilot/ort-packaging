@@ -66,6 +66,9 @@ build_args=(
   "${provider_args[@]}"
   --disable_rtti
 )
+if [[ "$target" == linux-* ]] && [ "$EUID" -eq 0 ]; then
+  build_args+=(--allow_running_as_root)
+fi
 if [ "$target" = "linux-arm64" ]; then
   build_args+=(--compile_no_warning_as_error)
 else
