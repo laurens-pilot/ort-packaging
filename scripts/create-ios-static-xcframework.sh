@@ -20,8 +20,13 @@ require_dir "$source_xcframework"
 
 device_library="$static_root/ios-arm64/libonnxruntime.a"
 simulator_library="$static_root/ios-arm64-simulator/libonnxruntime.a"
-device_headers="$source_xcframework/ios-arm64/onnxruntime.framework/Headers"
-simulator_headers="$source_xcframework/ios-arm64-simulator/onnxruntime.framework/Headers"
+if [ -d "$source_xcframework/ios-arm64/Headers" ]; then
+  device_headers="$source_xcframework/ios-arm64/Headers"
+  simulator_headers="$source_xcframework/ios-arm64-simulator/Headers"
+else
+  device_headers="$source_xcframework/ios-arm64/onnxruntime.framework/Headers"
+  simulator_headers="$source_xcframework/ios-arm64-simulator/onnxruntime.framework/Headers"
+fi
 require_file "$device_library"
 require_file "$simulator_library"
 require_dir "$device_headers"
