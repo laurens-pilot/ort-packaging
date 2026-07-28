@@ -77,11 +77,16 @@ write_manifest() {
   local target="$2"
   local linkage="$3"
   local providers="$4"
+  local ort_commit_value packaging_commit_value
+  ort_commit_value="$(ort_commit)" || die "unable to resolve the ONNX Runtime commit"
+  packaging_commit_value="$(packaging_commit)" || die "unable to resolve the packaging commit"
+  [[ "$ort_commit_value" =~ ^[0-9a-f]{40}$ ]] || die "invalid ONNX Runtime commit: $ort_commit_value"
+  [[ "$packaging_commit_value" =~ ^[0-9a-f]{40}$ ]] || die "invalid packaging commit: $packaging_commit_value"
   {
     printf 'ORT_REF=%s\n' "$ORT_REF"
     printf 'ORT_VERSION=%s\n' "$ORT_VERSION"
-    printf 'ORT_COMMIT=%s\n' "$(ort_commit)"
-    printf 'PACKAGING_COMMIT=%s\n' "$(packaging_commit)"
+    printf 'ORT_COMMIT=%s\n' "$ort_commit_value"
+    printf 'PACKAGING_COMMIT=%s\n' "$packaging_commit_value"
     printf 'PACKAGE_CHANNEL=%s\n' "$PACKAGE_CHANNEL"
     printf 'PACKAGE_REVISION=%s\n' "$PACKAGE_REVISION"
     printf 'PACKAGE_LABEL=%s\n' "$(package_label)"
