@@ -1,8 +1,8 @@
 # Custom ONNX Runtime Packaging
 
-Builds pinned, self-contained ONNX Runtime runtime packages for Android, iOS, Linux, macOS, and Windows without consuming Microsoft-provided ONNX Runtime binaries. The current upstream base is **ONNX Runtime 1.27.0** from `v1.27.0`; package-channel and toolchain pins live in [`versions.env`](versions.env).
+Builds pinned, self-contained ONNX Runtime runtime packages for Android, iOS, Linux, macOS, and Windows without consuming Microsoft-provided ONNX Runtime binaries. The current upstream base is **ONNX Runtime 1.28.0** from `v1.28.0`; package-channel and toolchain pins live in [`versions.env`](versions.env).
 
-This repository's release tags describe a **custom packaging** of upstream ONNX Runtime, not an upstream Microsoft release. A stable package revision is named `ort-<upstream-version>-r<revision>`; the first stable release is therefore `ort-1.27.0-r1`.
+This repository's release tags describe a **custom packaging** of upstream ONNX Runtime, not an upstream Microsoft release. A stable package revision is named `ort-<upstream-version>-r<revision>`; the first stable 1.28 release is therefore `ort-1.28.0-r1`.
 
 ## Packages
 
@@ -48,14 +48,14 @@ For a packaging-only correction, `scope=repackage` can derive a complete release
 
 `versions.env` is the release source of truth. The workflow derives the required tag from `ORT_VERSION`, `PACKAGE_CHANNEL`, and `PACKAGE_REVISION`; a release rejects a mismatched tag, a mismatched prerelease flag, or any ref other than `main` before starting platform builds.
 
-For a Linux-only stable release that rebuilds Linux while reusing verified non-Linux binaries from the preceding immutable release:
+For a Linux-only follow-up that rebuilds Linux while reusing verified non-Linux binaries from the preceding immutable release, first increment `PACKAGE_REVISION`, then dispatch the new tag with its source tag. For example:
 
 ```sh
 gh workflow run release.yml \
   --repo laurens-pilot/ort-packaging \
   --ref main \
-  -f tag=ort-1.27.0-r4 \
-  -f source_tag=ort-1.27.0-r3 \
+  -f tag=ort-1.28.0-r2 \
+  -f source_tag=ort-1.28.0-r1 \
   -f prerelease=false \
   -f scope=linux
 ```
@@ -73,8 +73,8 @@ Custom-built binaries are stripped of or packaged without debug-symbol data. Lin
 Example:
 
 ```sh
-tag=ort-1.27.0-r3
-asset=onnxruntime-webgpu-android-1.27.0-r3.aar
+tag=ort-1.28.0-r1
+asset=onnxruntime-webgpu-android-1.28.0-r1.aar
 base=https://github.com/laurens-pilot/ort-packaging/releases/download/$tag
 
 curl -fL -o "$asset" "$base/$asset"
