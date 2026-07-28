@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.28.0-r1 — 2026-07-28
+
+- Update the pinned upstream runtime to ONNX Runtime `v1.28.0` (`da9b5e364c465de65c49d91e696cd6485270757f`).
+- Include the upstream 1.28 security and runtime fixes and WebGPU plugin EP 0.3.0 update.
+- Revalidate the CoreML runtime-availability and public-vcpkg patches against the new upstream tag.
+- Build every supported target from source for the first stable 1.28 packaging revision.
+
 ## 1.27.0-r3 — 2026-07-27
 
 - Package iOS as one static-library XCFramework whose device and ARM64 Simulator slices each contain `libonnxruntime.a` and public headers.
