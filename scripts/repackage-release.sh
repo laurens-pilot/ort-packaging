@@ -5,8 +5,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=common.sh
 source "$SCRIPT_DIR/common.sh"
 
-[ "$#" -ge 2 ] && [ "$#" -le 3 ] ||
+if [ "$#" -lt 2 ] || [ "$#" -gt 3 ]; then
   die "usage: $0 <source-release-directory> <source-release-tag> [all|non-linux]"
+fi
 
 source_dir="$1"
 source_tag="$2"
