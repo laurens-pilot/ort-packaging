@@ -397,6 +397,12 @@ jobs:
           path: onnxruntime
           fetch-depth: 1
 
+      - name: Trust mounted Git workspaces
+        shell: bash
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global --add safe.directory "$ORT_SOURCE_DIR"
+
       - name: Select manylinux Python and verify build baseline
         shell: bash
         run: |
