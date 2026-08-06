@@ -44,23 +44,17 @@ Local scripts write to `build/` and `dist/` by default. CI sets the equivalent h
 
 The release workflow builds every target on its native GitHub-hosted runner. Linux compilation runs in checksum-pinned PyPA `manylinux_2_28` job containers on native x64 and ARM64 hosts, decoupling the package ABI from the GitHub runner image. Android ABIs are built independently and merged into a universal AAR. iOS is distributed for ARM64 devices and Apple Silicon Simulator hosts; Intel Simulator hosts are not supported. Its XCFramework contains ordinary `libonnxruntime.a` slices and public headers, so Swift Package Manager and consumers that link the archive directly use the same single copy of the machine code.
 
-For a packaging-only correction, `scope=repackage` can derive a complete release from an existing immutable 35-asset release without recompiling native code. Android binaries are copied byte-for-byte, desktop archives receive updated package manifests, and the iOS static archives are rewrapped with `xcodebuild -create-xcframework`. Every resulting manifest records the source tag, asset name, and SHA-256, and CI runs the iOS CPU/CoreML smoke test against the new package structure.
-
 `versions.env` is the release source of truth. The workflow derives the required tag from `ORT_VERSION`, `PACKAGE_CHANNEL`, and `PACKAGE_REVISION`; a release rejects a mismatched tag, a mismatched prerelease flag, or any ref other than `main` before starting platform builds.
 
-For a Linux-only follow-up that rebuilds Linux while reusing verified non-Linux binaries from the preceding immutable release, first increment `PACKAGE_REVISION`, then dispatch the new tag with its source tag. For example:
+Dispatch every release from `main` with the computed tag and prerelease setting. Every run builds and tests all targets from source before publishing. For example:
 
 ```sh
 gh workflow run release.yml \
   --repo ente/ort-packaging \
   --ref main \
   -f tag=ort-1.28.0-r2 \
-  -f source_tag=ort-1.28.0-r1 \
-  -f prerelease=false \
-  -f scope=linux
+  -f prerelease=false
 ```
-
-Use `scope=all` for a fresh native build of every target, `scope=repackage` for a packaging-only release, or `scope=windows` for a Windows-only probe. The `linux` scope requires a source release, rebuilds and tests both Linux architectures, and reuses the other platforms with per-asset provenance. Probe runs do not publish a release and may omit the tag.
 
 GitHub release immutability must be enabled under **Settings → General → Releases**. The workflow rejects an existing tag and verifies that the completed release is immutable with the expected asset count.
 
