@@ -52,7 +52,7 @@ For a Linux-only follow-up that rebuilds Linux while reusing verified non-Linux 
 
 ```sh
 gh workflow run release.yml \
-  --repo laurens-pilot/ort-packaging \
+  --repo ente/ort-packaging \
   --ref main \
   -f tag=ort-1.28.0-r2 \
   -f source_tag=ort-1.28.0-r1 \
@@ -75,7 +75,7 @@ Example:
 ```sh
 tag=ort-1.28.0-r1
 asset=onnxruntime-webgpu-android-1.28.0-r1.aar
-base=https://github.com/laurens-pilot/ort-packaging/releases/download/$tag
+base=https://github.com/ente/ort-packaging/releases/download/$tag
 
 curl -fL -o "$asset" "$base/$asset"
 curl -fL -o "$asset.sha256" "$base/$asset.sha256"
