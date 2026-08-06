@@ -4,28 +4,13 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Immutable release tag (required for release scopes; must match versions.env)
-        required: false
-        default: ""
-      source_tag:
-        description: Immutable source release tag (required for scope=repackage or scope=linux)
-        required: false
-        default: ""
+        description: Immutable release tag (must match versions.env)
+        required: true
       prerelease:
         description: Mark the GitHub release as a prerelease
         required: true
         type: boolean
         default: false
-      scope:
-        description: Build all targets, rebuild Linux, repackage a verified release, or probe Windows
-        required: true
-        type: choice
-        options:
-          - all
-          - linux
-          - repackage
-          - windows
-        default: all
 
 permissions:
   contents: read
@@ -49,7 +34,6 @@ jobs:
       package_revision: ${{ steps.meta.outputs.package_revision }}
       package_label: ${{ steps.meta.outputs.package_label }}
       release_tag: ${{ steps.meta.outputs.release_tag }}
-      source_release_tag: ${{ steps.meta.outputs.source_release_tag }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - id: meta
@@ -57,8 +41,6 @@ jobs:
         env:
           REQUESTED_TAG: ${{ inputs.tag }}
           REQUESTED_PRERELEASE: ${{ inputs.prerelease }}
-          REQUESTED_SOURCE_TAG: ${{ inputs.source_tag }}
-          SCOPE: ${{ inputs.scope }}
         run: |
           set -euo pipefail
           source versions.env
@@ -69,36 +51,18 @@ jobs:
           esac
           release_tag="ort-$ORT_VERSION-$package_label"
 
-          if [[ "$SCOPE" == all || "$SCOPE" == linux || "$SCOPE" == repackage ]]; then
-            [[ "$GITHUB_REF" == refs/heads/main ]] || {
-              echo "releases may only run from main; found $GITHUB_REF" >&2
-              exit 1
-            }
-            [[ "$REQUESTED_TAG" == "$release_tag" ]] || {
-              echo "release tag must be $release_tag; found ${REQUESTED_TAG:-<empty>}" >&2
-              exit 1
-            }
-            [[ "$REQUESTED_PRERELEASE" == "$expected_prerelease" ]] || {
-              echo "PACKAGE_CHANNEL=$PACKAGE_CHANNEL requires prerelease=$expected_prerelease" >&2
-              exit 1
-            }
-            if [[ "$SCOPE" == linux || "$SCOPE" == repackage ]]; then
-              [[ "$REQUESTED_SOURCE_TAG" == ort-$ORT_VERSION-* ]] || {
-                echo "source tag must be a release of ORT $ORT_VERSION; found ${REQUESTED_SOURCE_TAG:-<empty>}" >&2
-                exit 1
-              }
-              [[ "$REQUESTED_SOURCE_TAG" != "$release_tag" ]] || {
-                echo "source and destination release tags must differ" >&2
-                exit 1
-              }
-            elif [[ -n "$REQUESTED_SOURCE_TAG" ]]; then
-              echo "source_tag is only valid for scope=linux or scope=repackage" >&2
-              exit 1
-            fi
-          elif [[ -n "$REQUESTED_TAG" && "$REQUESTED_TAG" != "$release_tag" ]]; then
-            echo "when supplied, a probe tag must match $release_tag" >&2
+          [[ "$GITHUB_REF" == refs/heads/main ]] || {
+            echo "releases may only run from main; found $GITHUB_REF" >&2
             exit 1
-          fi
+          }
+          [[ "$REQUESTED_TAG" == "$release_tag" ]] || {
+            echo "release tag must be $release_tag; found ${REQUESTED_TAG:-<empty>}" >&2
+            exit 1
+          }
+          [[ "$REQUESTED_PRERELEASE" == "$expected_prerelease" ]] || {
+            echo "PACKAGE_CHANNEL=$PACKAGE_CHANNEL requires prerelease=$expected_prerelease" >&2
+            exit 1
+          }
 
           {
             echo "ort_ref=$ORT_REF"
@@ -107,13 +71,11 @@ jobs:
             echo "package_revision=$PACKAGE_REVISION"
             echo "package_label=$package_label"
             echo "release_tag=$release_tag"
-            echo "source_release_tag=$REQUESTED_SOURCE_TAG"
           } >> "$GITHUB_OUTPUT"
 
   android:
     name: Android ${{ matrix.abi }}
     needs: release-meta
-    if: inputs.scope == 'all'
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     strategy:
@@ -233,7 +195,6 @@ jobs:
 
   android-universal:
     name: Android universal AAR
-    if: inputs.scope == 'all'
     needs: [release-meta, android]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -267,7 +228,6 @@ jobs:
   ios:
     name: iOS CoreML XCFramework
     needs: release-meta
-    if: inputs.scope == 'all'
     runs-on: macos-15
     timeout-minutes: 360
     steps:
@@ -312,58 +272,9 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-  repackage:
-    name: Repackage verified source assets
-    needs: release-meta
-    if: inputs.scope == 'repackage' || inputs.scope == 'linux'
-    runs-on: macos-15
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          repository: microsoft/onnxruntime
-          ref: ${{ needs.release-meta.outputs.ort_ref }}
-          path: onnxruntime
-          fetch-depth: 1
-
-      - name: Verify and download immutable source release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          SOURCE_RELEASE_TAG: ${{ needs.release-meta.outputs.source_release_tag }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$SOURCE_RELEASE_TAG" \
-            --jq 'if .draft == false and .immutable == true and (.assets | length) == 35 then empty else error("source release is not immutable or has the wrong asset count") end'
-          mkdir "$RUNNER_TEMP/source-release"
-          gh release download "$SOURCE_RELEASE_TAG" \
-            --repo "$GITHUB_REPOSITORY" \
-            --dir "$RUNNER_TEMP/source-release"
-          [ "$(find "$RUNNER_TEMP/source-release" -maxdepth 1 -type f | wc -l | tr -d '[:space:]')" -eq 35 ]
-
-      - name: Repackage selected assets without recompiling native code
-        env:
-          SOURCE_RELEASE_TAG: ${{ needs.release-meta.outputs.source_release_tag }}
-          REPACKAGE_SCOPE: ${{ inputs.scope == 'linux' && 'non-linux' || 'all' }}
-        run: scripts/repackage-release.sh "$RUNNER_TEMP/source-release" "$SOURCE_RELEASE_TAG" "$REPACKAGE_SCOPE"
-
-      - name: Run iOS CPU and CoreML inference smoke tests
-        env:
-          IOS_PACKAGE_DIR: ${{ env.BUILD_ROOT }}/repackage/ios-package
-        run: scripts/test-ios-runtime.sh
-
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: repackaged
-          path: ${{ env.DIST_ROOT }}/repackaged/*
-          if-no-files-found: error
-          retention-days: 14
-
   linux-desktop:
     name: Build ${{ matrix.target }} in manylinux_2_28
     needs: release-meta
-    if: inputs.scope == 'all' || inputs.scope == 'linux'
     runs-on: ${{ matrix.runner }}
     container:
       image: ${{ matrix.container_image }}
@@ -453,7 +364,6 @@ jobs:
   linux-runtime-smoke:
     name: Test ${{ matrix.target }} on Ubuntu
     needs: [release-meta, linux-desktop]
-    if: inputs.scope == 'all' || inputs.scope == 'linux'
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
     strategy:
@@ -499,7 +409,6 @@ jobs:
   macos-desktop:
     name: ${{ matrix.target }}
     needs: release-meta
-    if: inputs.scope == 'all'
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 360
     strategy:
@@ -563,7 +472,6 @@ jobs:
   windows:
     name: ${{ matrix.target }}
     needs: release-meta
-    if: inputs.scope == 'all' || inputs.scope == 'windows'
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 360
     strategy:
@@ -642,30 +550,7 @@ jobs:
 
   release:
     name: Publish release assets
-    if: >-
-      ${{
-        always() &&
-        needs.release-meta.result == 'success' &&
-        (
-          (
-            inputs.scope == 'all' &&
-            needs.android-universal.result == 'success' &&
-            needs.ios.result == 'success' &&
-            needs.linux-desktop.result == 'success' &&
-            needs.linux-runtime-smoke.result == 'success' &&
-            needs.macos-desktop.result == 'success' &&
-            needs.windows.result == 'success'
-          ) ||
-          (
-            inputs.scope == 'linux' &&
-            needs.repackage.result == 'success' &&
-            needs.linux-desktop.result == 'success' &&
-            needs.linux-runtime-smoke.result == 'success'
-          ) ||
-          (inputs.scope == 'repackage' && needs.repackage.result == 'success')
-        )
-      }}
-    needs: [release-meta, android-universal, ios, repackage, linux-desktop, linux-runtime-smoke, macos-desktop, windows]
+    needs: [release-meta, android-universal, ios, linux-runtime-smoke, macos-desktop, windows]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -685,8 +570,6 @@ jobs:
           PACKAGE_REVISION: ${{ needs.release-meta.outputs.package_revision }}
           PACKAGE_LABEL: ${{ needs.release-meta.outputs.package_label }}
           RELEASE_TAG: ${{ needs.release-meta.outputs.release_tag }}
-          SOURCE_RELEASE_TAG: ${{ needs.release-meta.outputs.source_release_tag }}
-          RELEASE_SCOPE: ${{ inputs.scope }}
         run: |
           set -euo pipefail
           mkdir release-assets
@@ -716,19 +599,6 @@ jobs:
             grep -Fqx 'ORT_CORE_INCLUDED=1' "$manifest"
             target="$(awk -F= '$1 == "TARGET" { print $2 }' "$manifest")"
             [ -n "$target" ]
-            if [ -n "$SOURCE_RELEASE_TAG" ]; then
-              if [ "$RELEASE_SCOPE" = linux ] && [[ "$target" == linux-* ]]; then
-                if grep -q '^REPACKAGE_SOURCE_' "$manifest"; then
-                  echo "newly built Linux manifest unexpectedly records a repackaged source: $manifest" >&2
-                  exit 1
-                fi
-              else
-                grep -Fqx "REPACKAGE_SOURCE_TAG=$SOURCE_RELEASE_TAG" "$manifest"
-                grep -Eq '^REPACKAGE_SOURCE_ASSET=.+$' "$manifest"
-                grep -Eq '^REPACKAGE_SOURCE_SHA256=[0-9a-f]{64}$' "$manifest"
-              fi
-            fi
-
             cp "$binary" "$checksum" "$manifest" release-assets/
           done
           [ "$(find release-assets -maxdepth 1 -type f | wc -l)" -eq 33 ]
@@ -745,19 +615,10 @@ jobs:
               "package_channel": os.environ["PACKAGE_CHANNEL"],
               "package_revision": int(os.environ["PACKAGE_REVISION"]),
               "package_label": os.environ["PACKAGE_LABEL"],
-              "release_scope": os.environ["RELEASE_SCOPE"],
+              "release_scope": "all",
               "github_repository": os.environ["GITHUB_REPOSITORY"],
               "github_run_id": os.environ["GITHUB_RUN_ID"],
           }
-          source_release_tag = os.environ.get("SOURCE_RELEASE_TAG")
-          if source_release_tag:
-              provenance["repackage_source_release_tag"] = source_release_tag
-              if os.environ["RELEASE_SCOPE"] == "linux":
-                  provenance["native_binaries_recompiled"] = True
-                  provenance["recompiled_targets"] = ["linux-arm64", "linux-x64"]
-                  provenance["reused_platforms"] = ["android", "ios", "macos", "windows"]
-              else:
-                  provenance["native_binaries_recompiled"] = False
           with open("release-assets/build-provenance.json", "w", encoding="utf-8") as provenance_file:
               json.dump(provenance, provenance_file, indent=2, sort_keys=True)
               provenance_file.write("\n")
@@ -776,30 +637,17 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.release-meta.outputs.release_tag }}
           PRERELEASE: ${{ inputs.prerelease }}
-          SOURCE_RELEASE_TAG: ${{ needs.release-meta.outputs.source_release_tag }}
-          RELEASE_SCOPE: ${{ inputs.scope }}
         shell: bash
         run: |
           set -euo pipefail
           prerelease_flag=()
           if [ "$PRERELEASE" = "true" ]; then prerelease_flag+=(--prerelease); fi
           validation_note="CI runs packaged-runtime inference tests on every native runner before this release is published."
-          source_note=""
-          case "$RELEASE_SCOPE" in
-            linux)
-              source_note="This revision rebuilds Linux x64 and ARM64 in pinned manylinux_2_28 containers and reuses the byte-verified Android, iOS, macOS, and Windows binaries from the immutable $SOURCE_RELEASE_TAG release. Reused asset manifests record their exact source asset and SHA-256."
-              validation_note="CI enforces GLIBC/GLIBCXX ceilings on every Linux shared library, runs packaged CPU and WebGPU inference on native Ubuntu x64 and ARM64 hosts, and runs CPU and CoreML inference against the repackaged iOS XCFramework."
-              ;;
-            repackage)
-              source_note="This packaging-only revision reuses the byte-verified native binaries from the immutable $SOURCE_RELEASE_TAG release without recompiling them. Each asset manifest records its exact source asset and SHA-256."
-              validation_note="The source release supplied the native-runtime validation evidence; CI additionally runs CPU and CoreML inference against the repackaged iOS static-library XCFramework before publishing."
-              ;;
-          esac
           notes=$(mktemp)
           cat >"$notes" <<EOF
           Custom ONNX Runtime packaging build for ${{ needs.release-meta.outputs.ort_ref }}.
 
-          Package channel: ${{ needs.release-meta.outputs.package_channel }} (${{ needs.release-meta.outputs.package_label }}). $source_note Android assets contain a custom ONNX Runtime core with WebGPU and XNNPACK built in. Linux and Windows runtime bundles contain a matching custom ONNX Runtime core and WebGPU plugin; Linux packages support Ubuntu 20.04 and newer with GLIBC no newer than 2.28 and GLIBCXX no newer than 3.4.28, and Windows archives include the checksum-pinned DXC runtime DLLs and their licenses. macOS archives contain a CoreML-enabled ORT core targeting macOS 13.3 and later, with no WebGPU provider. The iOS ZIP contains one static-library XCFramework with device and ARM64 Simulator slices, CoreML and CPU support, and an iOS 15.1 deployment target. Custom-built binaries are stripped of or packaged without debug symbol data. $validation_note Every binary has a verified SHA-256 sidecar and build manifest. The build-provenance.json asset records the source commits and release inputs.
+          Package channel: ${{ needs.release-meta.outputs.package_channel }} (${{ needs.release-meta.outputs.package_label }}). Android assets contain a custom ONNX Runtime core with WebGPU and XNNPACK built in. Linux and Windows runtime bundles contain a matching custom ONNX Runtime core and WebGPU plugin; Linux packages support Ubuntu 20.04 and newer with GLIBC no newer than 2.28 and GLIBCXX no newer than 3.4.28, and Windows archives include the checksum-pinned DXC runtime DLLs and their licenses. macOS archives contain a CoreML-enabled ORT core targeting macOS 13.3 and later, with no WebGPU provider. The iOS ZIP contains one static-library XCFramework with device and ARM64 Simulator slices, CoreML and CPU support, and an iOS 15.1 deployment target. Custom-built binaries are stripped of or packaged without debug symbol data. $validation_note Every binary has a verified SHA-256 sidecar and build manifest. The build-provenance.json asset records the source commits and release inputs.
           EOF
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             echo "Release $RELEASE_TAG already exists; immutable releases cannot be overwritten." >&2
