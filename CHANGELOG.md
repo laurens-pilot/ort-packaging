@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.29.0-r1 — 2026-08-12
+
+- Update the pinned upstream runtime to ONNX Runtime `v1.29.0` (`2e2543fbe9fae542f921d47a72d21d5a4ef0b710`).
+- Include the upstream 1.29 security hardening, runtime fixes, and WebGPU execution-provider improvements.
+- Revalidate the CoreML runtime-availability and public-vcpkg patches against the new upstream tag.
+- Build every supported target from source for the first stable 1.29 packaging revision.
+
 ## 1.28.0-r1 — 2026-07-28
 
 - Update the pinned upstream runtime to ONNX Runtime `v1.28.0` (`da9b5e364c465de65c49d91e696cd6485270757f`).

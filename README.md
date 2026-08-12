@@ -1,8 +1,8 @@
 # Custom ONNX Runtime Packaging
 
-Builds pinned, self-contained ONNX Runtime runtime packages for Android, iOS, Linux, macOS, and Windows without consuming Microsoft-provided ONNX Runtime binaries. The current upstream base is **ONNX Runtime 1.28.0** from `v1.28.0`; package-channel and toolchain pins live in [`versions.env`](versions.env).
+Builds pinned, self-contained ONNX Runtime runtime packages for Android, iOS, Linux, macOS, and Windows without consuming Microsoft-provided ONNX Runtime binaries. The current upstream base is **ONNX Runtime 1.29.0** from `v1.29.0`; package-channel and toolchain pins live in [`versions.env`](versions.env).
 
-This repository's release tags describe a **custom packaging** of upstream ONNX Runtime, not an upstream Microsoft release. A stable package revision is named `ort-<upstream-version>-r<revision>`; the first stable 1.28 release is therefore `ort-1.28.0-r1`.
+This repository's release tags describe a **custom packaging** of upstream ONNX Runtime, not an upstream Microsoft release. A stable package revision is named `ort-<upstream-version>-r<revision>`; the first stable 1.29 release is therefore `ort-1.29.0-r1`.
 
 ## Packages
 
@@ -52,7 +52,7 @@ Dispatch every release from `main` with the computed tag and prerelease setting.
 gh workflow run release.yml \
   --repo ente/ort-packaging \
   --ref main \
-  -f tag=ort-1.28.0-r2 \
+  -f tag=ort-1.29.0-r1 \
   -f prerelease=false
 ```
 
@@ -67,8 +67,8 @@ Custom-built binaries are stripped of or packaged without debug-symbol data. Lin
 Example:
 
 ```sh
-tag=ort-1.28.0-r1
-asset=onnxruntime-webgpu-android-1.28.0-r1.aar
+tag=ort-1.29.0-r1
+asset=onnxruntime-webgpu-android-1.29.0-r1.aar
 base=https://github.com/ente/ort-packaging/releases/download/$tag
 
 curl -fL -o "$asset" "$base/$asset"
