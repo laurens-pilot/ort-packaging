@@ -30,6 +30,7 @@ jobs:
     outputs:
       ort_ref: ${{ steps.meta.outputs.ort_ref }}
       ort_version: ${{ steps.meta.outputs.ort_version }}
+      ort_telemetry: ${{ steps.meta.outputs.ort_telemetry }}
       package_channel: ${{ steps.meta.outputs.package_channel }}
       package_revision: ${{ steps.meta.outputs.package_revision }}
       package_label: ${{ steps.meta.outputs.package_label }}
@@ -44,6 +45,10 @@ jobs:
         run: |
           set -euo pipefail
           source versions.env
+          [[ "$ORT_TELEMETRY" == disabled ]] || {
+            echo "ORT_TELEMETRY must be disabled; found ${ORT_TELEMETRY:-<unset>}" >&2
+            exit 1
+          }
           case "$PACKAGE_CHANNEL" in
             pilot) package_label="pilot.$PACKAGE_REVISION"; expected_prerelease=true ;;
             stable) package_label="r$PACKAGE_REVISION"; expected_prerelease=false ;;
@@ -67,6 +72,7 @@ jobs:
           {
             echo "ort_ref=$ORT_REF"
             echo "ort_version=$ORT_VERSION"
+            echo "ort_telemetry=$ORT_TELEMETRY"
             echo "package_channel=$PACKAGE_CHANNEL"
             echo "package_revision=$PACKAGE_REVISION"
             echo "package_label=$package_label"
@@ -566,6 +572,7 @@ jobs:
         env:
           ORT_REF: ${{ needs.release-meta.outputs.ort_ref }}
           ORT_VERSION: ${{ needs.release-meta.outputs.ort_version }}
+          ORT_TELEMETRY: ${{ needs.release-meta.outputs.ort_telemetry }}
           PACKAGE_CHANNEL: ${{ needs.release-meta.outputs.package_channel }}
           PACKAGE_REVISION: ${{ needs.release-meta.outputs.package_revision }}
           PACKAGE_LABEL: ${{ needs.release-meta.outputs.package_label }}
@@ -592,6 +599,7 @@ jobs:
             [ "$actual" = "$expected" ]
             grep -Fqx "ORT_REF=$ORT_REF" "$manifest"
             grep -Fqx "ORT_VERSION=$ORT_VERSION" "$manifest"
+            grep -Fqx "ORT_TELEMETRY=$ORT_TELEMETRY" "$manifest"
             grep -Fqx "PACKAGING_COMMIT=$GITHUB_SHA" "$manifest"
             grep -Fqx "PACKAGE_CHANNEL=$PACKAGE_CHANNEL" "$manifest"
             grep -Fqx "PACKAGE_REVISION=$PACKAGE_REVISION" "$manifest"
@@ -612,6 +620,7 @@ jobs:
               "packaging_commit": os.environ["GITHUB_SHA"],
               "upstream_ort_ref": os.environ["ORT_REF"],
               "upstream_ort_version": os.environ["ORT_VERSION"],
+              "ort_telemetry": os.environ["ORT_TELEMETRY"],
               "package_channel": os.environ["PACKAGE_CHANNEL"],
               "package_revision": int(os.environ["PACKAGE_REVISION"]),
               "package_label": os.environ["PACKAGE_LABEL"],
@@ -647,7 +656,7 @@ jobs:
           cat >"$notes" <<EOF
           Custom ONNX Runtime packaging build for ${{ needs.release-meta.outputs.ort_ref }}.
 
-          Package channel: ${{ needs.release-meta.outputs.package_channel }} (${{ needs.release-meta.outputs.package_label }}). Android assets contain a custom ONNX Runtime core with WebGPU and XNNPACK built in. Linux and Windows runtime bundles contain a matching custom ONNX Runtime core and WebGPU plugin; Linux packages support Ubuntu 20.04 and newer with GLIBC no newer than 2.28 and GLIBCXX no newer than 3.4.28, and Windows archives include the checksum-pinned DXC runtime DLLs and their licenses. macOS archives contain a CoreML-enabled ORT core targeting macOS 13.3 and later, with no WebGPU provider. The iOS ZIP contains one static-library XCFramework with device and ARM64 Simulator slices, CoreML and CPU support, and an iOS 15.1 deployment target. Custom-built binaries are stripped of or packaged without debug symbol data. $validation_note Every binary has a verified SHA-256 sidecar and build manifest. The build-provenance.json asset records the source commits and release inputs.
+          Package channel: ${{ needs.release-meta.outputs.package_channel }} (${{ needs.release-meta.outputs.package_label }}). Telemetry is compiled out of every package. Android assets contain a custom ONNX Runtime core with WebGPU and XNNPACK built in. Linux and Windows runtime bundles contain a matching custom ONNX Runtime core and WebGPU plugin; Linux packages support Ubuntu 20.04 and newer with GLIBC no newer than 2.28 and GLIBCXX no newer than 3.4.28, and Windows archives include the checksum-pinned DXC runtime DLLs and their licenses. macOS archives contain a CoreML-enabled ORT core targeting macOS 13.3 and later, with no WebGPU provider. The iOS ZIP contains one static-library XCFramework with device and ARM64 Simulator slices, CoreML and CPU support, and an iOS 15.1 deployment target. Custom-built binaries are stripped of or packaged without debug symbol data. $validation_note Every binary has a verified SHA-256 sidecar and build manifest. The build-provenance.json asset records the source commits and release inputs.
           EOF
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             echo "Release $RELEASE_TAG already exists; immutable releases cannot be overwritten." >&2

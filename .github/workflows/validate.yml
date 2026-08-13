@@ -24,6 +24,10 @@ jobs:
           shellcheck -x -P scripts scripts/*.sh
           for script in scripts/*.sh; do bash -n "$script"; done
           jq --exit-status . config/*.json >/dev/null
+          source versions.env
+          [ "$ORT_TELEMETRY" = disabled ]
+          jq --exit-status ".build_params | index(\"--no_telemetry\") != null" config/android-webgpu.json >/dev/null
+          jq --exit-status ".build_params.base | index(\"--no_telemetry\") != null" config/ios-coreml.json >/dev/null
           # shellcheck disable=SC2016
           pwsh -NoProfile -Command '$errors = $null; Get-ChildItem scripts/*.ps1 | ForEach-Object { [System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$null, [ref]$errors) | Out-Null }; if ($errors.Count) { $errors | Format-List; exit 1 }'
 

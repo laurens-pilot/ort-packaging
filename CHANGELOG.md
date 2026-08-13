@@ -4,6 +4,8 @@
 
 - Update the pinned upstream runtime to ONNX Runtime `v1.29.0` (`2e2543fbe9fae542f921d47a72d21d5a4ef0b710`).
 - Include the upstream 1.29 security hardening, runtime fixes, and WebGPU execution-provider improvements.
+- Compile telemetry out of every package and fail builds or publishing if telemetry is enabled.
+- Keep Windows ARM64 warning validation strict without depending on upstream source line numbers.
 - Revalidate the CoreML runtime-availability and public-vcpkg patches against the new upstream tag.
 - Build every supported target from source for the first stable 1.29 packaging revision.
 

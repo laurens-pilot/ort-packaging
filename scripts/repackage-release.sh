@@ -49,6 +49,7 @@ expected = {
     "release_tag": sys.argv[2],
     "upstream_ort_ref": sys.argv[3],
     "upstream_ort_version": sys.argv[4],
+    "ort_telemetry": "disabled",
 }
 for key, value in expected.items():
     if provenance.get(key) != value:
@@ -117,6 +118,7 @@ verify_source_asset() {
     die "source SHA256SUMS does not contain $(basename "$source_asset")"
   grep -Fqx "ORT_REF=$ORT_REF" "$source_manifest"
   grep -Fqx "ORT_VERSION=$ORT_VERSION" "$source_manifest"
+  grep -Fqx "ORT_TELEMETRY=$ORT_TELEMETRY" "$source_manifest"
   grep -Fqx "PACKAGING_COMMIT=$source_packaging_commit" "$source_manifest"
   grep -Fqx "PACKAGE_LABEL=$source_label" "$source_manifest"
   grep -Fqx 'ORT_CORE_INCLUDED=1' "$source_manifest"

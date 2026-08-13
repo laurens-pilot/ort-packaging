@@ -16,6 +16,8 @@ This repository's release tags describe a **custom packaging** of upstream ONNX 
 
 The provider in an asset name is intentional: Android/Linux/Windows support WebGPU, while Apple packages intentionally use CoreML rather than WebGPU. Do not mix a packaged runtime, plugin, or headers with another ONNX Runtime build.
 
+Telemetry is compiled out of every package. Build entrypoints pass ONNX Runtime's `--no_telemetry` option and reject generated CMake configurations unless `onnxruntime_USE_TELEMETRY=OFF`, so an upstream default change cannot silently enable telemetry in a future release.
+
 ## Consumer requirements
 
 - Android: the AAR has a package minimum of API 24. WebGPU still depends on the physical device's Android/Vulkan GPU support; CPU and XNNPACK remain fallbacks.
@@ -60,7 +62,7 @@ GitHub release immutability must be enabled under **Settings → General → Rel
 
 ## Verification and provenance
 
-Every binary asset includes a `.sha256` checksum and `.manifest.env` file. Manifests record the upstream ref and commit, packaging commit, package channel/revision/label, target, provider topology, and build configuration. The release also includes `SHA256SUMS` and `build-provenance.json`.
+Every binary asset includes a `.sha256` checksum and `.manifest.env` file. Manifests record the upstream ref and commit, packaging commit, telemetry policy, package channel/revision/label, target, provider topology, and build configuration. The release also includes `SHA256SUMS` and `build-provenance.json`.
 
 Custom-built binaries are stripped of or packaged without debug-symbol data. Linux and Android builds additionally reject debug/symbol-table sections and executable stacks. Archives contain the ONNX Runtime licence and third-party notices; Android AARs store them under `META-INF/`. Windows archives include the licence files shipped with the pinned DXC runtime.
 
