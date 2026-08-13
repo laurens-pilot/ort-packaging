@@ -12,6 +12,7 @@ case "$abi" in
 esac
 
 require_cmd cmp
+require_cmd jar
 require_cmd python3
 require_cmd unzip
 require_cmd zip
@@ -43,6 +44,8 @@ if actual != expected:
     raise SystemExit(
         f"Android build configuration uses minSdk {actual}; expected {expected} from versions.env"
     )
+if "--no_telemetry" not in settings.get("build_params", []):
+    raise SystemExit("Android build configuration must disable telemetry")
 PY
 
 prepare_ort_source
@@ -62,6 +65,7 @@ python3 "$ORT_SOURCE_DIR/tools/ci_build/github/android/build_aar_package.py" \
   --android_sdk_path "$ANDROID_HOME" \
   --android_ndk_path "$ANDROID_NDK_HOME" \
   "$settings"
+verify_ort_telemetry_disabled "$build_dir"
 
 aar="$(find "$build_dir/aar_out/Release" -type f -name '*.aar' -print -quit)"
 require_file "$aar"
@@ -71,6 +75,11 @@ asset="$dist_dir/onnxruntime-webgpu-android-$abi-$ORT_VERSION-$(package_label).a
 package_dir="$build_dir/package"
 mkdir -p "$package_dir"
 unzip -q "$aar" -d "$package_dir"
+require_file "$package_dir/classes.jar"
+jar tf "$package_dir/classes.jar" >"$build_dir/java-classes.txt"
+if grep -Eq "^ai/onnxruntime/telemetry/" "$build_dir/java-classes.txt"; then
+  die "Android AAR contains ONNX Runtime telemetry classes"
+fi
 
 while IFS= read -r -d '' library; do
   "$ndk_strip" --strip-unneeded "$library"

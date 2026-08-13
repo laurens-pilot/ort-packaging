@@ -7,6 +7,24 @@ Get-Content (Join-Path $RepoRoot "versions.env") | ForEach-Object {
     if ($_ -match '^([^#=]+)=(.*)$') { $versions[$Matches[1]] = $Matches[2] }
 }
 
+if ($versions.ORT_TELEMETRY -ne "disabled") { throw "ORT_TELEMETRY must be disabled" }
+
+function Assert-OrtTelemetryDisabled {
+    param([string]$Root)
+
+    $ortCaches = @()
+    Get-ChildItem $Root -Filter CMakeCache.txt -Recurse -File | ForEach-Object {
+        $settings = @(Select-String -Path $_.FullName -Pattern "^onnxruntime_USE_TELEMETRY:[^=]+=")
+        if ($settings.Count -gt 0) {
+            $ortCaches += $_.FullName
+            if ($settings.Count -ne 1 -or $settings[0].Line -notmatch "^onnxruntime_USE_TELEMETRY:[^=]+=OFF$") {
+                throw "ONNX Runtime telemetry is not disabled in $($_.FullName)"
+            }
+        }
+    }
+    if ($ortCaches.Count -eq 0) { throw "no ONNX Runtime telemetry setting found below $Root" }
+}
+
 $target = if ($args.Count -gt 0) { $args[0] } else { "" }
 if ($target -notin @("windows-x64", "windows-arm64")) {
     throw "usage: build-windows.ps1 <windows-x64|windows-arm64>"
@@ -59,6 +77,7 @@ $buildArgs = @(
     "--use_vcpkg",
     "--use_webgpu", "shared_lib",
     "--wgsl_template", "static",
+    "--no_telemetry",
     "--disable_rtti",
     "--enable_lto",
     "--cmake_generator", "Visual Studio 17 2022",
@@ -83,6 +102,7 @@ if ($target -eq "windows-arm64") {
 $buildLog = Join-Path $buildDir "build.log"
 python @buildArgs 2>&1 | Tee-Object -FilePath $buildLog
 if ($LASTEXITCODE -ne 0) { throw "ONNX Runtime build failed" }
+Assert-OrtTelemetryDisabled $buildDir
 
 if ($target -eq "windows-arm64") {
     $warnings = @(Select-String -Path $buildLog -Pattern 'warning C\d{4}:' | ForEach-Object { $_.Line })
@@ -93,9 +113,9 @@ if ($target -eq "windows-arm64") {
 
     $missingReturnWarnings = @($warnings | Where-Object { $_ -match 'warning C4715:' })
     $allowedWarnings = @(
-        'BackendD3D\.cpp\(73\): warning C4715: .*ToDXGIPowerPreference',
-        'UtilsD3D\.cpp\(420\): warning C4715: .*DXGITextureFormat',
-        'UtilsD3D\.cpp\(265\): warning C4715: .*DXGITypelessTextureFormat'
+        "warning C4715: \x27.*::ToDXGIPowerPreference\x27: not all control paths return a value",
+        "warning C4715: \x27.*::DXGITextureFormat\x27: not all control paths return a value",
+        "warning C4715: \x27.*::DXGITypelessTextureFormat\x27: not all control paths return a value"
     )
     foreach ($warning in $missingReturnWarnings) {
         if (-not ($allowedWarnings | Where-Object { $warning -match $_ })) {
@@ -162,6 +182,7 @@ $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
 $manifestText = (@(
     "ORT_REF=$($versions.ORT_REF)",
     "ORT_VERSION=$($versions.ORT_VERSION)",
+    "ORT_TELEMETRY=$($versions.ORT_TELEMETRY)",
     "ORT_COMMIT=$commit",
     "PACKAGING_COMMIT=$packagingCommit",
     "PACKAGE_CHANNEL=$($versions.PACKAGE_CHANNEL)",

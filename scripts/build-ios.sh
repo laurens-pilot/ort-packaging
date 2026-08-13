@@ -41,6 +41,8 @@ for sysroot in ("iphoneos", "iphonesimulator"):
 base = settings["build_params"]["base"]
 if "--use_coreml" not in base:
     raise SystemExit("CoreML is not enabled")
+if "--no_telemetry" not in base:
+    raise SystemExit("iOS build configuration must disable telemetry")
 for forbidden in ("--use_webgpu", "--use_xnnpack"):
     if any(param == forbidden or param.startswith(f"{forbidden}=") for params in settings["build_params"].values() for param in params):
         raise SystemExit(f"forbidden iOS provider enabled: {forbidden}")
@@ -52,6 +54,7 @@ python3 "$ORT_SOURCE_DIR/tools/ci_build/github/apple/build_apple_framework.py" \
   --build_dir "$build_dir" \
   --config Release \
   "$settings" 2>&1 | tee "$build_log"
+verify_ort_telemetry_disabled "$build_dir"
 
 if grep -Fq -- '-Wunguarded-availability-new' "$build_log"; then
   die "iOS build emitted an unguarded runtime availability warning"

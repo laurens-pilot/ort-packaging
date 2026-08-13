@@ -35,6 +35,29 @@ require_dir() {
   [ -d "$1" ] || die "missing directory: $1"
 }
 
+require_telemetry_disabled() {
+  [ "${ORT_TELEMETRY:-}" = disabled ] || die "ORT_TELEMETRY must be disabled"
+}
+
+verify_ort_telemetry_disabled() {
+  local root="$1"
+  local cache count=0
+  require_dir "$root"
+  while IFS= read -r -d '' cache; do
+    local setting_count
+    setting_count=$(grep -Ec '^onnxruntime_USE_TELEMETRY:[^=]+=' "$cache" || true)
+    if [ "$setting_count" -gt 0 ]; then
+      count=$((count + 1))
+      if [ "$setting_count" -ne 1 ] || ! grep -Eq '^onnxruntime_USE_TELEMETRY:[^=]+=OFF$' "$cache"; then
+        die "ONNX Runtime telemetry is not disabled in $cache"
+      fi
+    fi
+  done < <(find "$root" -type f -name CMakeCache.txt -print0)
+  [ "$count" -gt 0 ] || die "no ONNX Runtime telemetry setting found below $root"
+}
+
+require_telemetry_disabled
+
 sha256_file() {
   if command -v sha256sum >/dev/null 2>&1; then
     sha256sum "$1" | awk '{print $1}'
@@ -85,6 +108,7 @@ write_manifest() {
   {
     printf 'ORT_REF=%s\n' "$ORT_REF"
     printf 'ORT_VERSION=%s\n' "$ORT_VERSION"
+    printf 'ORT_TELEMETRY=%s\n' "$ORT_TELEMETRY"
     printf 'ORT_COMMIT=%s\n' "$ort_commit_value"
     printf 'PACKAGING_COMMIT=%s\n' "$packaging_commit_value"
     printf 'PACKAGE_CHANNEL=%s\n' "$PACKAGE_CHANNEL"

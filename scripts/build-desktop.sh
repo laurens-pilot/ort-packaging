@@ -64,6 +64,7 @@ build_args=(
   --build_shared_lib
   --use_vcpkg
   "${provider_args[@]}"
+  --no_telemetry
   --disable_rtti
 )
 if [[ "$target" == linux-* ]] && [ "$EUID" -eq 0 ]; then
@@ -80,6 +81,7 @@ build_args+=(
 )
 build_log="$build_dir/build.log"
 python3 "${build_args[@]}" 2>&1 | tee "$build_log"
+verify_ort_telemetry_disabled "$build_dir"
 
 if [[ "$target" == macos-* ]]; then
   if grep -Fq "built for newer 'macOS' version" "$build_log"; then

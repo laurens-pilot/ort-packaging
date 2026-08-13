@@ -10,6 +10,7 @@
     "--build_shared_lib",
     "--use_webgpu",
     "--use_xnnpack",
+    "--no_telemetry",
     "--skip_tests",
     "--disable_rtti",
     "--enable_lto",
