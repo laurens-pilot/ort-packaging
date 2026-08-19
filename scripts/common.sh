@@ -53,6 +53,13 @@ require_telemetry_disabled() {
   [ "${ORT_TELEMETRY:-}" = disabled ] || die "ORT_TELEMETRY must be disabled"
 }
 
+ort_supports_no_telemetry() {
+  local build_args_file="$ORT_SOURCE_DIR/tools/ci_build/build_args.py"
+  require_file "$build_args_file"
+  grep -Fq -- '"--no_telemetry"' "$build_args_file" ||
+    grep -Fq -- "'--no_telemetry'" "$build_args_file"
+}
+
 verify_ort_telemetry_disabled() {
   local root="$1"
   local cache count=0

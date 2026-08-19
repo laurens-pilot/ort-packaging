@@ -75,7 +75,7 @@ Never replace or retag an existing release. Create the next package revision ins
 
 The provider in an asset name is intentional: Android/Linux/Windows support WebGPU, while Apple packages intentionally use CoreML rather than WebGPU. Do not mix a packaged runtime, plugin, or headers with another ONNX Runtime build.
 
-Telemetry is compiled out of every package. Platform build jobs pass ONNX Runtime's `--no_telemetry` option and reject generated CMake configurations unless `onnxruntime_USE_TELEMETRY=OFF`, so an upstream default change cannot silently enable telemetry in a future release.
+Telemetry is compiled out of every package. Every build explicitly sets `onnxruntime_USE_TELEMETRY=OFF`, uses ONNX Runtime's `--no_telemetry` option when that release supports it, and rejects generated CMake configurations unless telemetry is disabled.
 
 ## Consumer requirements
 

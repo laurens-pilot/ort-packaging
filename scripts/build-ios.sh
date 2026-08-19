@@ -18,21 +18,26 @@ require_cmd zip
 require_file "$REPO_ROOT/config/ios-coreml.json"
 prepare_ort_source
 
-settings="$REPO_ROOT/config/ios-coreml.json"
 build_dir="$BUILD_ROOT/ios"
 dist_dir="$DIST_ROOT/ios"
 package_dir="$dist_dir/package"
+settings="$build_dir/ios-coreml.json"
 rm -rf "$build_dir" "$dist_dir"
 mkdir -p "$build_dir" "$package_dir"
 
-python3 - "$settings" "$IOS_MIN_VERSION" <<'PY'
+no_telemetry_supported=0
+if ort_supports_no_telemetry; then
+  no_telemetry_supported=1
+fi
+
+python3 - "$REPO_ROOT/config/ios-coreml.json" "$settings" "$IOS_MIN_VERSION" "$no_telemetry_supported" <<'PY'
 import json
 import sys
 
 with open(sys.argv[1], encoding="utf-8") as settings_file:
     settings = json.load(settings_file)
 
-expected = f"--apple_deploy_target={sys.argv[2]}"
+expected = f"--apple_deploy_target={sys.argv[3]}"
 for sysroot in ("iphoneos", "iphonesimulator"):
     params = settings["build_params"][sysroot]
     if expected not in params:
@@ -41,11 +46,20 @@ for sysroot in ("iphoneos", "iphonesimulator"):
 base = settings["build_params"]["base"]
 if "--use_coreml" not in base:
     raise SystemExit("CoreML is not enabled")
-if "--no_telemetry" not in base:
+if "--no_telemetry" in base:
+    raise SystemExit("iOS build template must not require a version-specific telemetry option")
+if "--cmake_extra_defines=onnxruntime_USE_TELEMETRY=OFF" not in base:
     raise SystemExit("iOS build configuration must disable telemetry")
 for forbidden in ("--use_webgpu", "--use_xnnpack"):
     if any(param == forbidden or param.startswith(f"{forbidden}=") for params in settings["build_params"].values() for param in params):
         raise SystemExit(f"forbidden iOS provider enabled: {forbidden}")
+
+if sys.argv[4] == "1":
+    base.append("--no_telemetry")
+
+with open(sys.argv[2], "w", encoding="utf-8") as settings_file:
+    json.dump(settings, settings_file, indent=2)
+    settings_file.write("\n")
 PY
 
 log "building iOS CoreML XCFramework"

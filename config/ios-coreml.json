@@ -12,10 +12,10 @@
       "--parallel",
       "--build_apple_framework",
       "--use_coreml",
-      "--no_telemetry",
       "--skip_tests",
       "--no_kleidiai",
-      "--cmake_extra_defines=onnxruntime_BUILD_UNIT_TESTS=OFF"
+      "--cmake_extra_defines=onnxruntime_BUILD_UNIT_TESTS=OFF",
+      "--cmake_extra_defines=onnxruntime_USE_TELEMETRY=OFF"
     ],
     "iphoneos": [
       "--ios",
