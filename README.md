@@ -1,8 +1,67 @@
 # Custom ONNX Runtime Packaging
 
-Builds pinned, self-contained ONNX Runtime runtime packages for Android, iOS, Linux, macOS, and Windows without consuming Microsoft-provided ONNX Runtime binaries. The current upstream base is **ONNX Runtime 1.29.0** from `v1.29.0`; package-channel and toolchain pins live in [`versions.env`](versions.env).
+Builds pinned, self-contained ONNX Runtime runtime packages for Android, iOS, Linux, macOS, and Windows without consuming Microsoft-provided ONNX Runtime binaries. Shared toolchain and platform policy lives in [`build.env`](build.env); each release build resolves its requested upstream tag to an immutable commit.
 
-This repository's release tags describe a **custom packaging** of upstream ONNX Runtime, not an upstream Microsoft release. A stable package revision is named `ort-<upstream-version>-r<revision>`; the first stable 1.29 release is therefore `ort-1.29.0-r1`.
+This repository's release tags describe a **custom packaging** of upstream ONNX Runtime, not an upstream Microsoft release. Stable package revisions are named `ort-<upstream-version>-r<revision>`. See [Releases](https://github.com/ente/ort-packaging/releases) for available versions and assets.
+
+## Release process
+
+A routine ONNX Runtime release requires no repository changes. Do not edit `build.env` to select an ONNX Runtime version; change it only when the shared build policy or toolchain must change.
+
+Prerequisites:
+
+- The exact packaging code to release is on `main`.
+- The **Validate** workflow for that `main` commit succeeded.
+
+### 1. Build a release candidate
+
+Open [Build release candidate](https://github.com/ente/ort-packaging/actions/workflows/build.yml), select **Run workflow**, and use:
+
+- **Branch:** `main`
+- **ORT version:** the stable upstream version without a `v` prefix, such as `1.28.1`
+- **Package revision:** `1` for the first package of that ORT version; use the next integer only to correct the packaging. Revisions must be sequential.
+
+The equivalent CLI command is:
+
+```sh
+gh workflow run build.yml \
+  --repo ente/ort-packaging \
+  --ref main \
+  -f ort_version=1.28.1 \
+  -f package_revision=1
+```
+
+The workflow verifies the upstream release, resolves its tag to a commit, applies the repository patches, and builds and tests every package. The candidate is ready only when **Assemble release candidate** succeeds. Candidates expire after 14 days.
+
+### 2. Complete physical-device validation
+
+Before publishing, test Android WebGPU on representative supported physical devices and validate the iOS device slice and vendor-GPU behavior. Hosted CI validates package structure and runtime inference, but it cannot replace these device checks.
+
+### 3. Publish the candidate
+
+Copy the numeric run ID from the successful candidate build. Open [Publish release](https://github.com/ente/ort-packaging/actions/workflows/publish.yml), select **Run workflow** on `main`, and enter that ID.
+
+The equivalent CLI command is:
+
+```sh
+gh workflow run publish.yml \
+  --repo ente/ort-packaging \
+  --ref main \
+  -f build_run_id=123456789
+```
+
+Publication accepts only a successful `build.yml` run from this repository's `main` branch. It revalidates the candidate provenance, checksums, upstream commit, package revision, and target tag before creating an immutable release from the exact packaging commit that produced the candidate. If the candidate expired, run a new build instead.
+
+### 4. Verify the published release
+
+Confirm that the release:
+
+- uses the tag `ort-<ORT version>-r<package revision>`;
+- is immutable and contains 35 assets;
+- includes 11 packages, their 11 checksum sidecars, their 11 manifests, `SHA256SUMS`, and `build-provenance.json`;
+- passes `sha256sum -c SHA256SUMS` after download.
+
+Never replace or retag an existing release. Create the next package revision instead.
 
 ## Packages
 
@@ -16,7 +75,7 @@ This repository's release tags describe a **custom packaging** of upstream ONNX 
 
 The provider in an asset name is intentional: Android/Linux/Windows support WebGPU, while Apple packages intentionally use CoreML rather than WebGPU. Do not mix a packaged runtime, plugin, or headers with another ONNX Runtime build.
 
-Telemetry is compiled out of every package. Build entrypoints pass ONNX Runtime's `--no_telemetry` option and reject generated CMake configurations unless `onnxruntime_USE_TELEMETRY=OFF`, so an upstream default change cannot silently enable telemetry in a future release.
+Telemetry is compiled out of every package. Platform build jobs pass ONNX Runtime's `--no_telemetry` option and reject generated CMake configurations unless `onnxruntime_USE_TELEMETRY=OFF`, so an upstream default change cannot silently enable telemetry in a future release.
 
 ## Consumer requirements
 
@@ -32,33 +91,20 @@ For Linux and Windows, register the shared WebGPU plugin and select an EP device
 
 ## Repository layout
 
-- `versions.env`: upstream version, release channel/revision, and toolchain pins
+- `build.env`: shared toolchain, deployment-target, ABI, and telemetry policy
 - `config/`: Android and iOS build configurations
-- `scripts/`: platform build, packaging, and packaged-runtime smoke-test entrypoints
+- `scripts/`: workflow implementation helpers for platform builds, packaging, and packaged-runtime smoke tests
 - `patches/`: reviewable upstream compatibility patches; see [`PATCHES.md`](PATCHES.md)
 - `tests/`: portable packaged-runtime inference smoke tests
 - [`RELEASE-CHECKLIST.md`](RELEASE-CHECKLIST.md): required stable-release promotion steps
-- `.github/workflows/release.yml`: native build and immutable-release matrix
+- `.github/workflows/build.yml`: version-driven native build and release-candidate assembly
+- `.github/workflows/publish.yml`: immutable publication of one successful build run
 
-Local scripts write to `build/` and `dist/` by default. CI sets the equivalent hidden directories `.build/` and `.dist/`; all four are ignored by Git.
+The build and smoke-test helpers under `scripts/` are workflow implementation details, not supported standalone release commands. The release workflow supplies their resolved metadata and writes to `.build/` and `.dist/`; local fallback directories `build/` and `dist/` are also ignored by Git.
 
-## CI and releases
+## Build and validation design
 
-The release workflow builds every target on its native GitHub-hosted runner. Linux compilation runs in checksum-pinned PyPA `manylinux_2_28` job containers on native x64 and ARM64 hosts, decoupling the package ABI from the GitHub runner image. Android ABIs are built independently and merged into a universal AAR. iOS is distributed for ARM64 devices and Apple Silicon Simulator hosts; Intel Simulator hosts are not supported. Its XCFramework contains ordinary `libonnxruntime.a` slices and public headers, so Swift Package Manager and consumers that link the archive directly use the same single copy of the machine code.
-
-`versions.env` is the release source of truth. The workflow derives the required tag from `ORT_VERSION`, `PACKAGE_CHANNEL`, and `PACKAGE_REVISION`; a release rejects a mismatched tag, a mismatched prerelease flag, or any ref other than `main` before starting platform builds.
-
-Dispatch every release from `main` with the computed tag and prerelease setting. Every run builds and tests all targets from source before publishing. For example:
-
-```sh
-gh workflow run release.yml \
-  --repo ente/ort-packaging \
-  --ref main \
-  -f tag=ort-1.29.0-r1 \
-  -f prerelease=false
-```
-
-GitHub release immutability must be enabled under **Settings → General → Releases**. The workflow rejects an existing tag and verifies that the completed release is immutable with the expected asset count.
+The build workflow builds every target on its native GitHub-hosted runner. Linux compilation runs in checksum-pinned PyPA `manylinux_2_28` job containers on native x64 and ARM64 hosts, decoupling the package ABI from the GitHub runner image. Android ABIs are built independently and merged into a universal AAR. iOS is distributed for ARM64 devices and Apple Silicon Simulator hosts; Intel Simulator hosts are not supported. Its XCFramework contains ordinary `libonnxruntime.a` slices and public headers, so Swift Package Manager and consumers that link the archive directly use the same single copy of the machine code.
 
 ## Verification and provenance
 
@@ -66,19 +112,7 @@ Every binary asset includes a `.sha256` checksum and `.manifest.env` file. Manif
 
 Custom-built binaries are stripped of or packaged without debug-symbol data. Linux and Android builds additionally reject debug/symbol-table sections and executable stacks. Archives contain the ONNX Runtime licence and third-party notices; Android AARs store them under `META-INF/`. Windows archives include the licence files shipped with the pinned DXC runtime.
 
-Example:
-
-```sh
-tag=ort-1.29.0-r1
-asset=onnxruntime-webgpu-android-1.29.0-r1.aar
-base=https://github.com/ente/ort-packaging/releases/download/$tag
-
-curl -fL -o "$asset" "$base/$asset"
-curl -fL -o "$asset.sha256" "$base/$asset.sha256"
-printf '%s  %s\n' "$(cat "$asset.sha256")" "$asset" | sha256sum -c -
-```
-
-Always pin a release tag and checksum downstream.
+Always pin a release tag and verify its checksum sidecar downstream.
 
 ## Validation scope
 

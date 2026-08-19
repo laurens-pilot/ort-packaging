@@ -42,7 +42,7 @@ actual = settings.get("android_min_sdk_version")
 expected = int(sys.argv[2])
 if actual != expected:
     raise SystemExit(
-        f"Android build configuration uses minSdk {actual}; expected {expected} from versions.env"
+        f"Android build configuration uses minSdk {actual}; expected {expected} from build.env"
     )
 if "--no_telemetry" not in settings.get("build_params", []):
     raise SystemExit("Android build configuration must disable telemetry")

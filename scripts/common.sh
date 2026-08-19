@@ -6,8 +6,22 @@ export REPO_ROOT="${REPO_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 
 set -a
 # shellcheck disable=SC1091
-source "$REPO_ROOT/versions.env"
+source "$REPO_ROOT/build.env"
 set +a
+
+: "${ORT_REF:?ORT_REF must identify the upstream release tag}"
+: "${ORT_VERSION:?ORT_VERSION must be MAJOR.MINOR.PATCH}"
+: "${ORT_COMMIT:?ORT_COMMIT must be the resolved upstream commit}"
+: "${PACKAGE_REVISION:?PACKAGE_REVISION must be a positive integer}"
+[[ "$ORT_VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] ||
+  { printf 'error: invalid ORT_VERSION: %s\n' "$ORT_VERSION" >&2; exit 1; }
+[ "$ORT_REF" = "v$ORT_VERSION" ] ||
+  { printf 'error: ORT_REF must be v%s; found %s\n' "$ORT_VERSION" "$ORT_REF" >&2; exit 1; }
+[[ "$ORT_COMMIT" =~ ^[0-9a-f]{40}$ ]] ||
+  { printf 'error: invalid ORT_COMMIT: %s\n' "$ORT_COMMIT" >&2; exit 1; }
+[[ "$PACKAGE_REVISION" =~ ^[1-9][0-9]*$ ]] ||
+  { printf 'error: invalid PACKAGE_REVISION: %s\n' "$PACKAGE_REVISION" >&2; exit 1; }
+export PACKAGE_CHANNEL=stable
 
 export ORT_SOURCE_DIR="${ORT_SOURCE_DIR:-$REPO_ROOT/onnxruntime}"
 export BUILD_ROOT="${BUILD_ROOT:-$REPO_ROOT/build}"
@@ -72,11 +86,7 @@ write_checksum() {
 }
 
 package_label() {
-  case "$PACKAGE_CHANNEL" in
-    pilot) printf 'pilot.%s' "$PACKAGE_REVISION" ;;
-    stable) printf 'r%s' "$PACKAGE_REVISION" ;;
-    *) die "unsupported PACKAGE_CHANNEL: $PACKAGE_CHANNEL" ;;
-  esac
+  printf 'r%s' "$PACKAGE_REVISION"
 }
 
 package_release_tag() {
@@ -92,7 +102,7 @@ ort_commit() {
     printf '%s\n' "$ORT_COMMIT_OVERRIDE"
     return
   fi
-  git -C "$ORT_SOURCE_DIR" rev-parse HEAD
+  printf '%s\n' "$ORT_COMMIT"
 }
 
 write_manifest() {
@@ -131,9 +141,10 @@ write_manifest() {
 
 prepare_ort_source() {
   require_dir "$ORT_SOURCE_DIR/.git"
-  local actual_ref
-  actual_ref="$(git -C "$ORT_SOURCE_DIR" describe --tags --exact-match 2>/dev/null || true)"
-  [ "$actual_ref" = "$ORT_REF" ] || die "expected ORT source at $ORT_REF, found ${actual_ref:-untagged commit}"
+  local actual_commit
+  actual_commit="$(git -C "$ORT_SOURCE_DIR" rev-parse HEAD)"
+  [ "$actual_commit" = "$ORT_COMMIT" ] ||
+    die "expected ORT source at $ORT_COMMIT, found $actual_commit"
 
   local patch
   for patch in "$REPO_ROOT"/patches/*.patch; do

@@ -2,12 +2,18 @@ $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
 $RepoRoot = Split-Path -Parent $PSScriptRoot
-$versions = @{}
-Get-Content (Join-Path $RepoRoot "versions.env") | ForEach-Object {
-    if ($_ -match '^([^#=]+)=(.*)$') { $versions[$Matches[1]] = $Matches[2] }
+$buildConfig = @{}
+Get-Content (Join-Path $RepoRoot "build.env") | ForEach-Object {
+    if ($_ -match '^([^#=]+)=(.*)$') { $buildConfig[$Matches[1]] = $Matches[2] }
 }
 
-if ($versions.ORT_TELEMETRY -ne "disabled") { throw "ORT_TELEMETRY must be disabled" }
+if ($buildConfig.ORT_TELEMETRY -ne "disabled") { throw "ORT_TELEMETRY must be disabled" }
+if ($env:ORT_VERSION -notmatch '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$') {
+    throw "ORT_VERSION must be MAJOR.MINOR.PATCH"
+}
+if ($env:ORT_REF -ne "v$($env:ORT_VERSION)") { throw "ORT_REF must be v$($env:ORT_VERSION)" }
+if ($env:ORT_COMMIT -notmatch '^[0-9a-f]{40}$') { throw "ORT_COMMIT must be a full commit SHA" }
+if ($env:PACKAGE_REVISION -notmatch '^[1-9][0-9]*$') { throw "PACKAGE_REVISION must be a positive integer" }
 
 function Assert-OrtTelemetryDisabled {
     param([string]$Root)
@@ -33,11 +39,7 @@ if ($target -notin @("windows-x64", "windows-arm64")) {
 $ortSource = if ($env:ORT_SOURCE_DIR) { $env:ORT_SOURCE_DIR } else { Join-Path $RepoRoot "onnxruntime" }
 $buildRoot = if ($env:BUILD_ROOT) { $env:BUILD_ROOT } else { Join-Path $RepoRoot "build" }
 $distRoot = if ($env:DIST_ROOT) { $env:DIST_ROOT } else { Join-Path $RepoRoot "dist" }
-$packageLabel = switch ($versions.PACKAGE_CHANNEL) {
-    "pilot" { "pilot.$($versions.PACKAGE_REVISION)"; break }
-    "stable" { "r$($versions.PACKAGE_REVISION)"; break }
-    default { throw "unsupported PACKAGE_CHANNEL: $($versions.PACKAGE_CHANNEL)" }
-}
+$packageLabel = "r$($env:PACKAGE_REVISION)"
 $buildDir = Join-Path $buildRoot $target
 $distDir = Join-Path $distRoot $target
 $packageDir = Join-Path $distDir "package"
@@ -55,8 +57,8 @@ if ($hostArch -ne $requiredHostArch) {
     throw "$target must build on a native $requiredHostArch runner; found $hostArch"
 }
 
-$actualRef = git -C $ortSource describe --tags --exact-match
-if ($actualRef -ne $versions.ORT_REF) { throw "expected ORT $($versions.ORT_REF), found $actualRef" }
+$actualCommit = git -C $ortSource rev-parse HEAD
+if ($actualCommit -ne $env:ORT_COMMIT) { throw "expected ORT $($env:ORT_COMMIT), found $actualCommit" }
 git -C $ortSource apply --reverse --check (Join-Path $RepoRoot "patches/onnxruntime-public-vcpkg.patch") 2>$null
 if ($LASTEXITCODE -ne 0) {
     git -C $ortSource apply (Join-Path $RepoRoot "patches/onnxruntime-public-vcpkg.patch")
@@ -147,11 +149,11 @@ if (Get-ChildItem $packageDir -Filter "*.pdb" -Recurse) {
 # depending on incidental DLL placement in Dawn's build tree.
 $dxcArchive = Join-Path $buildDir "dxc.zip"
 $dxcExtract = Join-Path $buildDir "dxc"
-$dxcUrl = "https://github.com/microsoft/DirectXShaderCompiler/releases/download/$($versions.DXC_VERSION)/dxc_2025_02_20.zip"
+$dxcUrl = "https://github.com/microsoft/DirectXShaderCompiler/releases/download/$($buildConfig.DXC_VERSION)/dxc_2025_02_20.zip"
 Invoke-WebRequest -Uri $dxcUrl -OutFile $dxcArchive
 $dxcHash = (Get-FileHash $dxcArchive -Algorithm SHA256).Hash
-if ($dxcHash -ne $versions.DXC_ARCHIVE_SHA256) {
-    throw "DXC archive hash mismatch: expected $($versions.DXC_ARCHIVE_SHA256), found $dxcHash"
+if ($dxcHash -ne $buildConfig.DXC_ARCHIVE_SHA256) {
+    throw "DXC archive hash mismatch: expected $($buildConfig.DXC_ARCHIVE_SHA256), found $dxcHash"
 }
 Expand-Archive -Path $dxcArchive -DestinationPath $dxcExtract -Force
 $dxcArch = if ($target -eq "windows-arm64") { "arm64" } else { "x64" }
@@ -180,13 +182,13 @@ $commit = git -C $ortSource rev-parse HEAD
 $packagingCommit = git -C $RepoRoot rev-parse HEAD
 $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
 $manifestText = (@(
-    "ORT_REF=$($versions.ORT_REF)",
-    "ORT_VERSION=$($versions.ORT_VERSION)",
-    "ORT_TELEMETRY=$($versions.ORT_TELEMETRY)",
+    "ORT_REF=$($env:ORT_REF)",
+    "ORT_VERSION=$($env:ORT_VERSION)",
+    "ORT_TELEMETRY=$($buildConfig.ORT_TELEMETRY)",
     "ORT_COMMIT=$commit",
     "PACKAGING_COMMIT=$packagingCommit",
-    "PACKAGE_CHANNEL=$($versions.PACKAGE_CHANNEL)",
-    "PACKAGE_REVISION=$($versions.PACKAGE_REVISION)",
+    "PACKAGE_CHANNEL=stable",
+    "PACKAGE_REVISION=$($env:PACKAGE_REVISION)",
     "PACKAGE_LABEL=$packageLabel",
     "TARGET=$target",
     "ORT_CORE_INCLUDED=1",
@@ -197,7 +199,7 @@ $manifestText = (@(
 $packageManifest = Join-Path $packageDir "manifest.env"
 [System.IO.File]::WriteAllText($packageManifest, $manifestText, $utf8NoBom)
 
-$assetName = "onnxruntime-webgpu-$target-$($versions.ORT_VERSION)-$packageLabel.zip"
+$assetName = "onnxruntime-webgpu-$target-$($env:ORT_VERSION)-$packageLabel.zip"
 $asset = Join-Path $distDir $assetName
 Compress-Archive -Path (Join-Path $packageDir "*") -DestinationPath $asset
 $hash = (Get-FileHash $asset -Algorithm SHA256).Hash.ToLowerInvariant()
