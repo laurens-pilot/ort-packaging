@@ -1,16 +1,19 @@
-name: Build and release
+name: Build release candidate
 
 on:
   workflow_dispatch:
     inputs:
-      tag:
-        description: Immutable release tag (must match versions.env)
+      ort_version:
+        description: Stable upstream ONNX Runtime version (MAJOR.MINOR.PATCH)
         required: true
-      prerelease:
-        description: Mark the GitHub release as a prerelease
+      package_revision:
+        description: Packaging revision
         required: true
-        type: boolean
-        default: false
+        default: "1"
+
+concurrency:
+  group: ort-build-${{ inputs.ort_version }}-r${{ inputs.package_revision }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -30,60 +33,63 @@ jobs:
     outputs:
       ort_ref: ${{ steps.meta.outputs.ort_ref }}
       ort_version: ${{ steps.meta.outputs.ort_version }}
+      ort_commit: ${{ steps.meta.outputs.ort_commit }}
       ort_telemetry: ${{ steps.meta.outputs.ort_telemetry }}
+      python_version: ${{ steps.meta.outputs.python_version }}
+      node_version: ${{ steps.meta.outputs.node_version }}
       package_channel: ${{ steps.meta.outputs.package_channel }}
       package_revision: ${{ steps.meta.outputs.package_revision }}
       package_label: ${{ steps.meta.outputs.package_label }}
       release_tag: ${{ steps.meta.outputs.release_tag }}
+      build_env_sha256: ${{ steps.meta.outputs.build_env_sha256 }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - id: meta
         shell: bash
         env:
-          REQUESTED_TAG: ${{ inputs.tag }}
-          REQUESTED_PRERELEASE: ${{ inputs.prerelease }}
+          GH_TOKEN: ${{ github.token }}
+          ORT_VERSION_INPUT: ${{ inputs.ort_version }}
+          PACKAGE_REVISION_INPUT: ${{ inputs.package_revision }}
         run: |
           set -euo pipefail
-          source versions.env
-          [[ "$ORT_TELEMETRY" == disabled ]] || {
-            echo "ORT_TELEMETRY must be disabled; found ${ORT_TELEMETRY:-<unset>}" >&2
-            exit 1
-          }
-          case "$PACKAGE_CHANNEL" in
-            pilot) package_label="pilot.$PACKAGE_REVISION"; expected_prerelease=true ;;
-            stable) package_label="r$PACKAGE_REVISION"; expected_prerelease=false ;;
-            *) echo "unsupported PACKAGE_CHANNEL: $PACKAGE_CHANNEL" >&2; exit 1 ;;
-          esac
-          release_tag="ort-$ORT_VERSION-$package_label"
-
           [[ "$GITHUB_REF" == refs/heads/main ]] || {
-            echo "releases may only run from main; found $GITHUB_REF" >&2
+            echo "release candidates may only build from main; found $GITHUB_REF" >&2
             exit 1
           }
-          [[ "$REQUESTED_TAG" == "$release_tag" ]] || {
-            echo "release tag must be $release_tag; found ${REQUESTED_TAG:-<empty>}" >&2
-            exit 1
-          }
-          [[ "$REQUESTED_PRERELEASE" == "$expected_prerelease" ]] || {
-            echo "PACKAGE_CHANNEL=$PACKAGE_CHANNEL requires prerelease=$expected_prerelease" >&2
-            exit 1
-          }
+          bash scripts/resolve-release.sh "$ORT_VERSION_INPUT" "$PACKAGE_REVISION_INPUT" >> "$GITHUB_OUTPUT"
 
-          {
-            echo "ort_ref=$ORT_REF"
-            echo "ort_version=$ORT_VERSION"
-            echo "ort_telemetry=$ORT_TELEMETRY"
-            echo "package_channel=$PACKAGE_CHANNEL"
-            echo "package_revision=$PACKAGE_REVISION"
-            echo "package_label=$package_label"
-            echo "release_tag=$release_tag"
-          } >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          repository: microsoft/onnxruntime
+          ref: ${{ steps.meta.outputs.ort_commit }}
+          path: onnxruntime
+          fetch-depth: 1
+
+      - name: Verify patches and portable smoke-test headers
+        shell: bash
+        env:
+          ORT_COMMIT: ${{ steps.meta.outputs.ort_commit }}
+        run: |
+          set -euo pipefail
+          [ "$(git -C onnxruntime rev-parse HEAD)" = "$ORT_COMMIT" ]
+          for patch in "$GITHUB_WORKSPACE"/patches/*.patch; do
+            git -C onnxruntime apply --check "$patch"
+            git -C onnxruntime apply "$patch"
+          done
+          cmake -S tests -B "$RUNNER_TEMP/runtime-smoke" \
+            -DORT_INCLUDE_DIR="$GITHUB_WORKSPACE/onnxruntime/include/onnxruntime/core/session"
+          cmake --build "$RUNNER_TEMP/runtime-smoke" --parallel
 
   android:
     name: Android ${{ matrix.abi }}
     needs: release-meta
     runs-on: ubuntu-24.04
     timeout-minutes: 360
+    env:
+      ORT_REF: ${{ needs.release-meta.outputs.ort_ref }}
+      ORT_VERSION: ${{ needs.release-meta.outputs.ort_version }}
+      ORT_COMMIT: ${{ needs.release-meta.outputs.ort_commit }}
+      PACKAGE_REVISION: ${{ needs.release-meta.outputs.package_revision }}
     strategy:
       fail-fast: false
       matrix:
@@ -93,7 +99,7 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           repository: microsoft/onnxruntime
-          ref: ${{ needs.release-meta.outputs.ort_ref }}
+          ref: ${{ needs.release-meta.outputs.ort_commit }}
           path: onnxruntime
           fetch-depth: 1
 
@@ -111,10 +117,10 @@ jobs:
 
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.12"
+          python-version: ${{ needs.release-meta.outputs.python_version }}
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: "20"
+          node-version: ${{ needs.release-meta.outputs.node_version }}
       - uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5.6.0
         with:
           distribution: temurin
@@ -125,7 +131,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          source versions.env
+          source build.env
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends ninja-build unzip zip
           yes | sdkmanager --licenses >/dev/null || true
@@ -150,7 +156,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          source versions.env
+          source build.env
           export ANDROID_AVD_HOME="$RUNNER_TEMP/android-avd"
           mkdir -p "$ANDROID_AVD_HOME"
           echo no | avdmanager create avd --force \
@@ -204,12 +210,17 @@ jobs:
     needs: [release-meta, android]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    env:
+      ORT_REF: ${{ needs.release-meta.outputs.ort_ref }}
+      ORT_VERSION: ${{ needs.release-meta.outputs.ort_version }}
+      ORT_COMMIT: ${{ needs.release-meta.outputs.ort_commit }}
+      PACKAGE_REVISION: ${{ needs.release-meta.outputs.package_revision }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           repository: microsoft/onnxruntime
-          ref: ${{ needs.release-meta.outputs.ort_ref }}
+          ref: ${{ needs.release-meta.outputs.ort_commit }}
           path: onnxruntime
           fetch-depth: 1
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -236,12 +247,17 @@ jobs:
     needs: release-meta
     runs-on: macos-15
     timeout-minutes: 360
+    env:
+      ORT_REF: ${{ needs.release-meta.outputs.ort_ref }}
+      ORT_VERSION: ${{ needs.release-meta.outputs.ort_version }}
+      ORT_COMMIT: ${{ needs.release-meta.outputs.ort_commit }}
+      PACKAGE_REVISION: ${{ needs.release-meta.outputs.package_revision }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           repository: microsoft/onnxruntime
-          ref: ${{ needs.release-meta.outputs.ort_ref }}
+          ref: ${{ needs.release-meta.outputs.ort_commit }}
           path: onnxruntime
           fetch-depth: 1
 
@@ -258,7 +274,7 @@ jobs:
           disable-terrapin: "true"
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.12"
+          python-version: ${{ needs.release-meta.outputs.python_version }}
 
       - name: Install Apple packaging requirements
         run: |
@@ -305,12 +321,16 @@ jobs:
     env:
       CC: gcc
       CXX: g++
+      ORT_REF: ${{ needs.release-meta.outputs.ort_ref }}
+      ORT_VERSION: ${{ needs.release-meta.outputs.ort_version }}
+      ORT_COMMIT: ${{ needs.release-meta.outputs.ort_commit }}
+      PACKAGE_REVISION: ${{ needs.release-meta.outputs.package_revision }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           repository: microsoft/onnxruntime
-          ref: ${{ needs.release-meta.outputs.ort_ref }}
+          ref: ${{ needs.release-meta.outputs.ort_commit }}
           path: onnxruntime
           fetch-depth: 1
 
@@ -324,12 +344,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          source versions.env
+          source build.env
           [ "$(uname -m)" = "${{ matrix.machine }}" ]
           [ "$(getconf GNU_LIBC_VERSION)" = "glibc $LINUX_MAX_GLIBC" ]
-          [ -x /opt/python/cp312-cp312/bin/python ]
+          python_tag="${PYTHON_VERSION//./}"
+          python_dir="/opt/python/cp$python_tag-cp$python_tag"
+          [ -x "$python_dir/bin/python" ]
           [ "$(gcc -dumpversion | cut -d. -f1)" = 14 ]
-          echo /opt/python/cp312-cp312/bin >> "$GITHUB_PATH"
+          echo "$python_dir/bin" >> "$GITHUB_PATH"
           gcc --version
 
       - name: Install Linux build tools
@@ -349,7 +371,7 @@ jobs:
           disable-terrapin: "true"
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: "20"
+          node-version: ${{ needs.release-meta.outputs.node_version }}
 
       - name: Install pinned Python build tools
         shell: bash
@@ -372,6 +394,11 @@ jobs:
     needs: [release-meta, linux-desktop]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
+    env:
+      ORT_REF: ${{ needs.release-meta.outputs.ort_ref }}
+      ORT_VERSION: ${{ needs.release-meta.outputs.ort_version }}
+      ORT_COMMIT: ${{ needs.release-meta.outputs.ort_commit }}
+      PACKAGE_REVISION: ${{ needs.release-meta.outputs.package_revision }}
     strategy:
       fail-fast: false
       matrix:
@@ -385,7 +412,7 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           repository: microsoft/onnxruntime
-          ref: ${{ needs.release-meta.outputs.ort_ref }}
+          ref: ${{ needs.release-meta.outputs.ort_commit }}
           path: onnxruntime
           fetch-depth: 1
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -417,6 +444,11 @@ jobs:
     needs: release-meta
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 360
+    env:
+      ORT_REF: ${{ needs.release-meta.outputs.ort_ref }}
+      ORT_VERSION: ${{ needs.release-meta.outputs.ort_version }}
+      ORT_COMMIT: ${{ needs.release-meta.outputs.ort_commit }}
+      PACKAGE_REVISION: ${{ needs.release-meta.outputs.package_revision }}
     strategy:
       fail-fast: false
       matrix:
@@ -434,7 +466,7 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           repository: microsoft/onnxruntime
-          ref: ${{ needs.release-meta.outputs.ort_ref }}
+          ref: ${{ needs.release-meta.outputs.ort_commit }}
           path: onnxruntime
           fetch-depth: 1
       - uses: microsoft/onnxruntime-github-actions/setup-build-tools@8bad63a3c05d448311dfa8e5f531171c97471aa1 # v0.0.12
@@ -450,15 +482,15 @@ jobs:
           disable-terrapin: "true"
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.12"
+          python-version: ${{ needs.release-meta.outputs.python_version }}
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: "20"
+          node-version: ${{ needs.release-meta.outputs.node_version }}
 
       - name: Install pinned Python build tools
         shell: bash
         run: |
-          source versions.env
+          source build.env
           python -m pip install --disable-pip-version-check \
             -r onnxruntime/tools/ci_build/github/linux/docker/scripts/requirements.txt
 
@@ -480,6 +512,11 @@ jobs:
     needs: release-meta
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 360
+    env:
+      ORT_REF: ${{ needs.release-meta.outputs.ort_ref }}
+      ORT_VERSION: ${{ needs.release-meta.outputs.ort_version }}
+      ORT_COMMIT: ${{ needs.release-meta.outputs.ort_commit }}
+      PACKAGE_REVISION: ${{ needs.release-meta.outputs.package_revision }}
     strategy:
       fail-fast: false
       matrix:
@@ -496,7 +533,7 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           repository: microsoft/onnxruntime
-          ref: ${{ needs.release-meta.outputs.ort_ref }}
+          ref: ${{ needs.release-meta.outputs.ort_commit }}
           path: onnxruntime
           fetch-depth: 1
       - uses: microsoft/onnxruntime-github-actions/setup-build-tools@8bad63a3c05d448311dfa8e5f531171c97471aa1 # v0.0.12
@@ -525,15 +562,15 @@ jobs:
           disable-terrapin: "true"
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.12"
+          python-version: ${{ needs.release-meta.outputs.python_version }}
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: "20"
+          node-version: ${{ needs.release-meta.outputs.node_version }}
 
       - name: Install pinned build tools
         shell: pwsh
         run: |
-          Get-Content versions.env | ForEach-Object {
+          Get-Content build.env | ForEach-Object {
             if ($_ -match '^([^#=]+)=(.*)$') { Set-Item "env:$($Matches[1])" $Matches[2] }
           }
           python -m pip install --disable-pip-version-check `
@@ -554,17 +591,36 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-  release:
-    name: Publish release assets
+  candidate:
+    name: Assemble release candidate
     needs: [release-meta, android-universal, ios, linux-runtime-smoke, macos-desktop, windows]
     runs-on: ubuntu-24.04
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - name: Download Android artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          pattern: "*"
+          pattern: android-*
+          path: ${{ runner.temp }}/artifacts
+      - name: Download iOS artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ios
+          path: ${{ runner.temp }}/artifacts
+      - name: Download Linux artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: linux-*
+          path: ${{ runner.temp }}/artifacts
+      - name: Download macOS artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: macos-*
+          path: ${{ runner.temp }}/artifacts
+      - name: Download Windows artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: windows-*
           path: ${{ runner.temp }}/artifacts
 
       - name: Collect and verify assets
@@ -572,11 +628,13 @@ jobs:
         env:
           ORT_REF: ${{ needs.release-meta.outputs.ort_ref }}
           ORT_VERSION: ${{ needs.release-meta.outputs.ort_version }}
+          ORT_COMMIT: ${{ needs.release-meta.outputs.ort_commit }}
           ORT_TELEMETRY: ${{ needs.release-meta.outputs.ort_telemetry }}
           PACKAGE_CHANNEL: ${{ needs.release-meta.outputs.package_channel }}
           PACKAGE_REVISION: ${{ needs.release-meta.outputs.package_revision }}
           PACKAGE_LABEL: ${{ needs.release-meta.outputs.package_label }}
           RELEASE_TAG: ${{ needs.release-meta.outputs.release_tag }}
+          BUILD_ENV_SHA256: ${{ needs.release-meta.outputs.build_env_sha256 }}
         run: |
           set -euo pipefail
           mkdir release-assets
@@ -599,6 +657,7 @@ jobs:
             [ "$actual" = "$expected" ]
             grep -Fqx "ORT_REF=$ORT_REF" "$manifest"
             grep -Fqx "ORT_VERSION=$ORT_VERSION" "$manifest"
+            grep -Fqx "ORT_COMMIT=$ORT_COMMIT" "$manifest"
             grep -Fqx "ORT_TELEMETRY=$ORT_TELEMETRY" "$manifest"
             grep -Fqx "PACKAGING_COMMIT=$GITHUB_SHA" "$manifest"
             grep -Fqx "PACKAGE_CHANNEL=$PACKAGE_CHANNEL" "$manifest"
@@ -611,22 +670,50 @@ jobs:
           done
           [ "$(find release-assets -maxdepth 1 -type f | wc -l)" -eq 33 ]
 
+          set -a
+          source build.env
+          set +a
           python3 - <<'PY'
           import json
           import os
 
+          release_notes = (
+              f"Custom ONNX Runtime packaging build for {os.environ['ORT_REF']}.\n\n"
+              f"Package channel: stable ({os.environ['PACKAGE_LABEL']}). "
+              "Telemetry is compiled out of every package. "
+              f"Android assets target API {os.environ['ANDROID_MIN_SDK']} and contain a custom "
+              "ONNX Runtime core with WebGPU and XNNPACK built in. Linux and Windows runtime "
+              "bundles contain a matching custom ONNX Runtime core and WebGPU plugin; Linux "
+              f"packages require no newer than GLIBC {os.environ['LINUX_MAX_GLIBC']} and "
+              f"GLIBCXX {os.environ['LINUX_MAX_GLIBCXX']}, and Windows archives include the "
+              f"checksum-pinned DXC {os.environ['DXC_VERSION']} runtime DLLs and their licenses. "
+              "macOS archives contain a CoreML-enabled ORT core targeting macOS "
+              f"{os.environ['MACOS_MIN_VERSION']} and later, with no WebGPU provider. The iOS "
+              "ZIP contains one static-library XCFramework with device and ARM64 Simulator "
+              f"slices, CoreML and CPU support, and an iOS {os.environ['IOS_MIN_VERSION']} "
+              "deployment target. Custom-built binaries are stripped of or packaged without "
+              "debug symbol data. CI ran packaged-runtime inference tests on every native "
+              "runner before publication. Every binary has a verified SHA-256 sidecar and "
+              "build manifest. The build-provenance.json asset records the source commits and "
+              "release inputs."
+          )
           provenance = {
               "release_tag": os.environ["RELEASE_TAG"],
               "packaging_commit": os.environ["GITHUB_SHA"],
               "upstream_ort_ref": os.environ["ORT_REF"],
               "upstream_ort_version": os.environ["ORT_VERSION"],
+              "upstream_ort_commit": os.environ["ORT_COMMIT"],
               "ort_telemetry": os.environ["ORT_TELEMETRY"],
+              "build_env_sha256": os.environ["BUILD_ENV_SHA256"],
               "package_channel": os.environ["PACKAGE_CHANNEL"],
               "package_revision": int(os.environ["PACKAGE_REVISION"]),
               "package_label": os.environ["PACKAGE_LABEL"],
               "release_scope": "all",
               "github_repository": os.environ["GITHUB_REPOSITORY"],
-              "github_run_id": os.environ["GITHUB_RUN_ID"],
+              "github_build_run_id": int(os.environ["GITHUB_RUN_ID"]),
+              "github_build_run_attempt": int(os.environ["GITHUB_RUN_ATTEMPT"]),
+              "github_workflow_ref": os.environ["GITHUB_WORKFLOW_REF"],
+              "release_notes": release_notes,
           }
           with open("release-assets/build-provenance.json", "w", encoding="utf-8") as provenance_file:
               json.dump(provenance, provenance_file, indent=2, sort_keys=True)
@@ -640,33 +727,30 @@ jobs:
               \( -name '*.aar' -o -name '*.tar.gz' -o -name '*.zip' \) | sort)
             sha256sum "${binaries[@]}" > SHA256SUMS
           )
+          bash scripts/verify-release-candidate.sh \
+            release-assets "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$GITHUB_SHA" \
+            >/dev/null
 
-      - name: Publish immutable GitHub release
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-candidate
+          path: release-assets/*
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Write publication instructions
         env:
-          GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.release-meta.outputs.release_tag }}
-          PRERELEASE: ${{ inputs.prerelease }}
         shell: bash
         run: |
-          set -euo pipefail
-          prerelease_flag=()
-          if [ "$PRERELEASE" = "true" ]; then prerelease_flag+=(--prerelease); fi
-          validation_note="CI runs packaged-runtime inference tests on every native runner before this release is published."
-          notes=$(mktemp)
-          cat >"$notes" <<EOF
-          Custom ONNX Runtime packaging build for ${{ needs.release-meta.outputs.ort_ref }}.
-
-          Package channel: ${{ needs.release-meta.outputs.package_channel }} (${{ needs.release-meta.outputs.package_label }}). Telemetry is compiled out of every package. Android assets contain a custom ONNX Runtime core with WebGPU and XNNPACK built in. Linux and Windows runtime bundles contain a matching custom ONNX Runtime core and WebGPU plugin; Linux packages support Ubuntu 20.04 and newer with GLIBC no newer than 2.28 and GLIBCXX no newer than 3.4.28, and Windows archives include the checksum-pinned DXC runtime DLLs and their licenses. macOS archives contain a CoreML-enabled ORT core targeting macOS 13.3 and later, with no WebGPU provider. The iOS ZIP contains one static-library XCFramework with device and ARM64 Simulator slices, CoreML and CPU support, and an iOS 15.1 deployment target. Custom-built binaries are stripped of or packaged without debug symbol data. $validation_note Every binary has a verified SHA-256 sidecar and build manifest. The build-provenance.json asset records the source commits and release inputs.
-          EOF
-          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            echo "Release $RELEASE_TAG already exists; immutable releases cannot be overwritten." >&2
-            exit 1
-          fi
-          gh release create "$RELEASE_TAG" release-assets/* \
-            --target "$GITHUB_SHA" \
-            --title "$RELEASE_TAG" \
-            --notes-file "$notes" \
-            "${prerelease_flag[@]}"
-
-          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" \
-            --jq 'if .draft == false and .immutable == true and (.assets | length) == 35 then empty else error("published release is not immutable or has the wrong asset count") end'
+          {
+            echo "## $RELEASE_TAG is ready"
+            echo
+            echo "Publish this exact candidate with:"
+            echo
+            echo '```sh'
+            echo "gh workflow run publish.yml --repo $GITHUB_REPOSITORY --ref main -f build_run_id=$GITHUB_RUN_ID"
+            echo '```'
+            echo
+            echo "Candidate artifacts expire after 14 days."
+          } >> "$GITHUB_STEP_SUMMARY"

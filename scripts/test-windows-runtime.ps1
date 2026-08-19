@@ -2,10 +2,6 @@ $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
 $RepoRoot = Split-Path -Parent $PSScriptRoot
-$versions = @{}
-Get-Content (Join-Path $RepoRoot "versions.env") | ForEach-Object {
-    if ($_ -match '^([^#=]+)=(.*)$') { $versions[$Matches[1]] = $Matches[2] }
-}
 
 $target = if ($args.Count -gt 0) { $args[0] } else { "" }
 if ($target -notin @("windows-x64", "windows-arm64")) {
