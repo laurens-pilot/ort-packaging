@@ -4,6 +4,65 @@ Builds pinned, self-contained ONNX Runtime runtime packages for Android, iOS, Li
 
 This repository's release tags describe a **custom packaging** of upstream ONNX Runtime, not an upstream Microsoft release. Stable package revisions are named `ort-<upstream-version>-r<revision>`. See [Releases](https://github.com/ente/ort-packaging/releases) for available versions and assets.
 
+## Release process
+
+A routine ONNX Runtime release requires no repository changes. Do not edit `build.env` to select an ONNX Runtime version; change it only when the shared build policy or toolchain must change.
+
+Prerequisites:
+
+- The exact packaging code to release is on `main`.
+- The **Validate** workflow for that `main` commit succeeded.
+
+### 1. Build a release candidate
+
+Open [Build release candidate](https://github.com/ente/ort-packaging/actions/workflows/build.yml), select **Run workflow**, and use:
+
+- **Branch:** `main`
+- **ORT version:** the stable upstream version without a `v` prefix, such as `1.28.1`
+- **Package revision:** `1` for the first package of that ORT version; use the next integer only to correct the packaging. Revisions must be sequential.
+
+The equivalent CLI command is:
+
+```sh
+gh workflow run build.yml \
+  --repo ente/ort-packaging \
+  --ref main \
+  -f ort_version=1.28.1 \
+  -f package_revision=1
+```
+
+The workflow verifies the upstream release, resolves its tag to a commit, applies the repository patches, and builds and tests every package. The candidate is ready only when **Assemble release candidate** succeeds. Candidates expire after 14 days.
+
+### 2. Complete physical-device validation
+
+Before publishing, test Android WebGPU on representative supported physical devices and validate the iOS device slice and vendor-GPU behavior. Hosted CI validates package structure and runtime inference, but it cannot replace these device checks.
+
+### 3. Publish the candidate
+
+Copy the numeric run ID from the successful candidate build. Open [Publish release](https://github.com/ente/ort-packaging/actions/workflows/publish.yml), select **Run workflow** on `main`, and enter that ID.
+
+The equivalent CLI command is:
+
+```sh
+gh workflow run publish.yml \
+  --repo ente/ort-packaging \
+  --ref main \
+  -f build_run_id=123456789
+```
+
+Publication accepts only a successful `build.yml` run from this repository's `main` branch. It revalidates the candidate provenance, checksums, upstream commit, package revision, and target tag before creating an immutable release from the exact packaging commit that produced the candidate. If the candidate expired, run a new build instead.
+
+### 4. Verify the published release
+
+Confirm that the release:
+
+- uses the tag `ort-<ORT version>-r<package revision>`;
+- is immutable and contains 35 assets;
+- includes 11 packages, their 11 checksum sidecars, their 11 manifests, `SHA256SUMS`, and `build-provenance.json`;
+- passes `sha256sum -c SHA256SUMS` after download.
+
+Never replace or retag an existing release. Create the next package revision instead.
+
 ## Packages
 
 | Platform | Architectures | Asset family | Contents |
@@ -43,35 +102,9 @@ For Linux and Windows, register the shared WebGPU plugin and select an EP device
 
 The build and smoke-test helpers under `scripts/` are workflow implementation details, not supported standalone release commands. The release workflow supplies their resolved metadata and writes to `.build/` and `.dist/`; local fallback directories `build/` and `dist/` are also ignored by Git.
 
-## CI and releases
+## Build and validation design
 
 The build workflow builds every target on its native GitHub-hosted runner. Linux compilation runs in checksum-pinned PyPA `manylinux_2_28` job containers on native x64 and ARM64 hosts, decoupling the package ABI from the GitHub runner image. Android ABIs are built independently and merged into a universal AAR. iOS is distributed for ARM64 devices and Apple Silicon Simulator hosts; Intel Simulator hosts are not supported. Its XCFramework contains ordinary `libonnxruntime.a` slices and public headers, so Swift Package Manager and consumers that link the archive directly use the same single copy of the machine code.
-
-### Publishing a release
-
-No repository file needs a version bump for a routine upstream release. Leave `build.env` unchanged unless shared build policy or toolchain pins need to change.
-
-In GitHub Actions, run **Build release candidate** from `main` and enter the stable upstream version. The package revision defaults to `1`; enter `2` or higher only for a packaging correction. The CLI equivalent is:
-
-```sh
-ort_version=X.Y.Z
-gh workflow run build.yml \
-  --repo ente/ort-packaging \
-  --ref main \
-  -f "ort_version=$ort_version"
-```
-
-The workflow verifies that the corresponding Microsoft release is published and stable, pins its tag to a full commit, checks the repository patches, and builds and tests every target. When it succeeds, run **Publish release** with the build run ID shown in the summary. The equivalent CLI command is:
-
-```sh
-build_run_id=123456789
-gh workflow run publish.yml \
-  --repo ente/ort-packaging \
-  --ref main \
-  -f "build_run_id=$build_run_id"
-```
-
-Publication accepts only a successful `build.yml` run from `main`, revalidates its provenance and checksums, and tags the exact packaging commit used by that build. Candidate artifacts expire after 14 days. Rebuild if the candidate has expired.
 
 ## Verification and provenance
 
