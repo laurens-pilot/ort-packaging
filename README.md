@@ -71,7 +71,7 @@ gh workflow run publish.yml \
   -f "build_run_id=$build_run_id"
 ```
 
-Publication accepts only a successful `build.yml` run from `main`, revalidates its provenance and checksums, and tags the exact packaging commit used by that build. Candidate artifacts expire after 14 days. Rebuild if the candidate has expired. GitHub release immutability must be enabled under **Settings → General → Releases**.
+Publication accepts only a successful `build.yml` run from `main`, revalidates its provenance and checksums, and tags the exact packaging commit used by that build. Candidate artifacts expire after 14 days. Rebuild if the candidate has expired.
 
 ## Verification and provenance
 
