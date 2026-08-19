@@ -18,7 +18,10 @@ dist_dir="$DIST_ROOT/$target"
 rm -rf "$build_dir" "$dist_dir"
 mkdir -p "$build_dir" "$dist_dir/package"
 
-cmake_defines=("onnxruntime_BUILD_UNIT_TESTS=OFF")
+cmake_defines=(
+  "onnxruntime_BUILD_UNIT_TESTS=OFF"
+  "onnxruntime_USE_TELEMETRY=OFF"
+)
 case "$target" in
   linux-*)
     cmake_defines+=(
@@ -64,9 +67,11 @@ build_args=(
   --build_shared_lib
   --use_vcpkg
   "${provider_args[@]}"
-  --no_telemetry
   --disable_rtti
 )
+if ort_supports_no_telemetry; then
+  build_args+=(--no_telemetry)
+fi
 if [[ "$target" == linux-* ]] && [ "$EUID" -eq 0 ]; then
   build_args+=(--allow_running_as_root)
 fi

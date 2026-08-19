@@ -65,10 +65,13 @@ jobs:
           path: onnxruntime
           fetch-depth: 1
 
-      - name: Verify patches and portable smoke-test headers
+      - name: Verify patches, build interface, and portable smoke-test headers
         shell: bash
         env:
+          ORT_REF: ${{ steps.meta.outputs.ort_ref }}
+          ORT_VERSION: ${{ steps.meta.outputs.ort_version }}
           ORT_COMMIT: ${{ steps.meta.outputs.ort_commit }}
+          PACKAGE_REVISION: ${{ steps.meta.outputs.package_revision }}
         run: |
           set -euo pipefail
           [ "$(git -C onnxruntime rev-parse HEAD)" = "$ORT_COMMIT" ]
@@ -76,6 +79,14 @@ jobs:
             git -C onnxruntime apply --check "$patch"
             git -C onnxruntime apply "$patch"
           done
+          source scripts/common.sh
+          if ort_supports_no_telemetry; then
+            echo "Upstream build supports --no_telemetry"
+          else
+            echo "Upstream build requires the explicit telemetry CMake definition"
+          fi
+          jq --exit-status '.build_params | index("--no_telemetry") == null and index("--cmake_extra_defines=onnxruntime_USE_TELEMETRY=OFF") != null' config/android-webgpu.json >/dev/null
+          jq --exit-status '.build_params.base | index("--no_telemetry") == null and index("--cmake_extra_defines=onnxruntime_USE_TELEMETRY=OFF") != null' config/ios-coreml.json >/dev/null
           cmake -S tests -B "$RUNNER_TEMP/runtime-smoke" \
             -DORT_INCLUDE_DIR="$GITHUB_WORKSPACE/onnxruntime/include/onnxruntime/core/session"
           cmake --build "$RUNNER_TEMP/runtime-smoke" --parallel

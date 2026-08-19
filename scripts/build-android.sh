@@ -31,23 +31,6 @@ ndk_strip="$ndk_bin/llvm-strip"
 require_file "$ndk_readelf"
 require_file "$ndk_strip"
 
-python3 - "$REPO_ROOT/config/android-webgpu.json" "$ANDROID_MIN_SDK" <<'PY'
-import json
-import sys
-
-with open(sys.argv[1], encoding="utf-8") as settings_file:
-    settings = json.load(settings_file)
-
-actual = settings.get("android_min_sdk_version")
-expected = int(sys.argv[2])
-if actual != expected:
-    raise SystemExit(
-        f"Android build configuration uses minSdk {actual}; expected {expected} from build.env"
-    )
-if "--no_telemetry" not in settings.get("build_params", []):
-    raise SystemExit("Android build configuration must disable telemetry")
-PY
-
 prepare_ort_source
 
 build_dir="$BUILD_ROOT/android-$abi"
@@ -56,7 +39,38 @@ settings="$build_dir/android-webgpu-$abi.json"
 rm -rf "$build_dir" "$dist_dir"
 mkdir -p "$build_dir" "$dist_dir"
 
-sed "s/\"arm64-v8a\"/\"$abi\"/" "$REPO_ROOT/config/android-webgpu.json" >"$settings"
+no_telemetry_supported=0
+if ort_supports_no_telemetry; then
+  no_telemetry_supported=1
+fi
+
+python3 - "$REPO_ROOT/config/android-webgpu.json" "$settings" "$abi" "$ANDROID_MIN_SDK" "$no_telemetry_supported" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as settings_file:
+    settings = json.load(settings_file)
+
+params = settings.get("build_params", [])
+actual = settings.get("android_min_sdk_version")
+expected = int(sys.argv[4])
+if actual != expected:
+    raise SystemExit(
+        f"Android build configuration uses minSdk {actual}; expected {expected} from build.env"
+    )
+if "--no_telemetry" in params:
+    raise SystemExit("Android build template must not require a version-specific telemetry option")
+if "--cmake_extra_defines=onnxruntime_USE_TELEMETRY=OFF" not in params:
+    raise SystemExit("Android build configuration must disable telemetry")
+
+settings["build_abis"] = [sys.argv[3]]
+if sys.argv[5] == "1":
+    params.append("--no_telemetry")
+
+with open(sys.argv[2], "w", encoding="utf-8") as settings_file:
+    json.dump(settings, settings_file, indent=2)
+    settings_file.write("\n")
+PY
 
 log "building Android WebGPU AAR for $abi"
 python3 "$ORT_SOURCE_DIR/tools/ci_build/github/android/build_aar_package.py" \

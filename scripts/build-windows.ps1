@@ -65,6 +65,10 @@ if ($LASTEXITCODE -ne 0) {
     if ($LASTEXITCODE -ne 0) { throw "failed to apply public-vcpkg patch" }
 }
 
+$ortBuildArgs = Join-Path $ortSource "tools/ci_build/build_args.py"
+if (-not (Test-Path $ortBuildArgs)) { throw "missing ONNX Runtime build argument parser: $ortBuildArgs" }
+$noTelemetrySupported = Select-String -Path $ortBuildArgs -Pattern '["'']--no_telemetry["'']' -Quiet
+
 Remove-Item $buildDir, $distDir -Recurse -Force -ErrorAction SilentlyContinue
 New-Item $buildDir -ItemType Directory -Force | Out-Null
 New-Item $packageDir -ItemType Directory -Force | Out-Null
@@ -79,15 +83,18 @@ $buildArgs = @(
     "--use_vcpkg",
     "--use_webgpu", "shared_lib",
     "--wgsl_template", "static",
-    "--no_telemetry",
     "--disable_rtti",
     "--enable_lto",
     "--cmake_generator", "Visual Studio 17 2022",
     "--cmake_extra_defines",
     "onnxruntime_BUILD_UNIT_TESTS=OFF",
+    "onnxruntime_USE_TELEMETRY=OFF",
     "onnxruntime_ENABLE_DAWN_BACKEND_D3D12=1",
     "onnxruntime_ENABLE_DAWN_BACKEND_VULKAN=0"
 )
+if ($noTelemetrySupported) {
+    $buildArgs += "--no_telemetry"
+}
 if ($target -eq "windows-arm64") {
     # KleidiAI 1.20.0 calls a half-float conversion that is not declared by its
     # MSVC ARM64 configuration. Keep the correct MLAS fallback until upstream
