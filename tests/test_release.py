@@ -234,6 +234,51 @@ class CandidateTests(unittest.TestCase):
         release.record_validation(asset, log)
         self.assertEqual(release.read_json(str(asset) + ".validation.json")["cpu"], "not_run")
 
+    def test_sequential_device_checks_preserve_candidate(self):
+        module = load_script("validate-device")
+        recorder = load_script("device-evidence")
+        evidence = self.root.parent / "evidence.json"
+        original = {file.name: file.read_bytes() for file in self.root.iterdir()}
+
+        def download(url, **kwargs):
+            return io.BytesIO(b"[]" if "api.github.com" in url else b"fixture model")
+
+        def run(command, **kwargs):
+            if command[0] == "bash":
+                asset = Path(kwargs["env"]["ORT_PACKAGE_ASSET"])
+                self.assertNotEqual(asset.parent, self.root)
+                self.assertEqual(asset.read_bytes(), (self.root / asset.name).read_bytes())
+                release.record_validation(asset)
+                kwargs["stdout"].write(
+                    "CPU_INFERENCE=passed\nCOREML_INFERENCE=passed\n"
+                    "JAVA_JNI_INFERENCE=passed\nPHYSICAL_DEVICE=passed\n"
+                    f"ASSET_SHA256={release.digest(asset)}\n"
+                )
+            else:
+                recorder.record(
+                    Path(command[2]), command[4], command[6], Path(command[8]), Path(command[10])
+                )
+
+        with (
+            patch.dict(os.environ, {"ANDROID_HOME": str(self.root.parent / "sdk")}),
+            patch.object(module.subprocess, "check_output", return_value=self.commit + "\n"),
+            patch.object(module.subprocess, "run", side_effect=run),
+            patch.object(module.urllib.request, "urlopen", side_effect=download),
+            patch.object(module, "verify", side_effect=lambda *args: self.verify()),
+        ):
+            for platform in ("android", "ios"):
+                module.validate(
+                    self.root,
+                    platform,
+                    "fixture-id",
+                    "Fixture phone",
+                    self.root.parent / platform,
+                    evidence,
+                )
+                self.verify()
+        self.assertEqual(original, {file.name: file.read_bytes() for file in self.root.iterdir()})
+        release.device_evidence(self.root, evidence)
+
     def test_assembly_round_trip_and_duplicate_assets(self):
         for name, report in self.p["validation"].items():
             release.write_json(self.root / (name + ".validation.json"), report)

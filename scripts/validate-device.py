@@ -85,10 +85,6 @@ def validate(candidate, platform, device, description, work, evidence):
             candidate
             / f"onnxruntime-webgpu-{platform}-{p['upstream_ort_version']}-{p['package_label']}.zip"
         )
-        folder = Path(env["DIST_ROOT"]) / platform
-        folder.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(asset, folder / asset.name)
-        require(digest(asset) == digest(folder / asset.name), "staged package hash mismatch")
         env["REQUIRE_WEBGPU"] = "1"
         env["CMAKE_GENERATOR"] = read_json(ROOT / "config/toolchains.json")["hosts"][platform][
             "generator"
@@ -100,7 +96,12 @@ def validate(candidate, platform, device, description, work, evidence):
             str(ROOT / "scripts/test-windows-runtime.ps1"),
             platform,
         ]
-    env["ORT_PACKAGE_ASSET"] = str(asset)
+    folder = Path(env["DIST_ROOT"]) / platform
+    folder.mkdir(parents=True, exist_ok=True)
+    staged = folder / asset.name
+    shutil.copyfile(asset, staged)
+    require(digest(asset) == digest(staged), "staged package hash mismatch")
+    env["ORT_PACKAGE_ASSET"] = str(staged)
     log = work / f"{platform}.log"
     with log.open("w") as output:
         subprocess.run(
