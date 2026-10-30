@@ -1,0 +1,13 @@
+{
+  "vcpkg": {
+    "url": "https://github.com/microsoft/vcpkg/archive/refs/tags/2025.08.27.zip",
+    "sha512": "9a4b32849792e13bee1d24726f073b3881acae4165206ddf1a6378e44a4ddd05b3ee93f55ff46d8e8873b3cbcd06606212989e248f0bd615a5bf365070074079"
+  },
+  "hosts": {
+    "linux-x64": {"cmake": {"url": "https://github.com/Kitware/CMake/releases/download/v3.31.8/cmake-3.31.8-linux-x86_64.tar.gz", "sha512": "7939260931098c3f00d2b36de3bee6a0ee3bcae2dba001598c492ed5c82d295c9aa9969654f1ff937fec4d71679541238baaa648c5246f36e14f28f0a62337a0"}},
+    "linux-arm64": {"cmake": {"url": "https://github.com/Kitware/CMake/releases/download/v3.31.8/cmake-3.31.8-linux-aarch64.tar.gz", "sha512": "8eeb07e966a5340c122979dd2e371708a78adccc85200b22bc7e66028e65513bce5ced6c37fe65aedb94000d970186c5c7562d1ab3dbda911061de46b75345d9"}},
+    "macos-universal": {"cmake": {"url": "https://github.com/Kitware/CMake/releases/download/v3.31.8/cmake-3.31.8-macos-universal.tar.gz", "sha512": "99cc9c63ae49f21253efb5921de2ba84ce136018abf08632c92c060ba91d552e0f6acc214e9ba8123dee0cf6d1cf089ca389e321879fd9d719a60d975bcffcc8"}},
+    "windows-x64": {"generator": "Visual Studio 17 2022", "cmake": {"url": "https://github.com/Kitware/CMake/releases/download/v3.31.8/cmake-3.31.8-windows-x86_64.zip", "sha512": "807b774fcb12defff8ce869e602fc5b6279d5b7bf7229ebcf3f7490da3f887d516b9c49a00d50f9179e552ed8737d19835a19ef8f366d1ffda1ad6f3352a90c2"}},
+    "windows-arm64": {"generator": "Visual Studio 18 2026", "cmake": {"url": "https://github.com/Kitware/CMake/releases/download/v4.2.3/cmake-4.2.3-windows-arm64.zip", "sha512": "ae50dceeb410c6d4473a637ff5e86da0add370239f91de8252b1e2f715933ea63151c082db5db5dadb86ced03cf5d35303bd0c03ce7746430283043c1c4c0d18"}}
+  }
+}

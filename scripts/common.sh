@@ -14,13 +14,25 @@ set +a
 : "${ORT_COMMIT:?ORT_COMMIT must be the resolved upstream commit}"
 : "${PACKAGE_REVISION:?PACKAGE_REVISION must be a positive integer}"
 [[ "$ORT_VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] ||
-  { printf 'error: invalid ORT_VERSION: %s\n' "$ORT_VERSION" >&2; exit 1; }
+  {
+    printf 'error: invalid ORT_VERSION: %s\n' "$ORT_VERSION" >&2
+    exit 1
+  }
 [ "$ORT_REF" = "v$ORT_VERSION" ] ||
-  { printf 'error: ORT_REF must be v%s; found %s\n' "$ORT_VERSION" "$ORT_REF" >&2; exit 1; }
+  {
+    printf 'error: ORT_REF must be v%s; found %s\n' "$ORT_VERSION" "$ORT_REF" >&2
+    exit 1
+  }
 [[ "$ORT_COMMIT" =~ ^[0-9a-f]{40}$ ]] ||
-  { printf 'error: invalid ORT_COMMIT: %s\n' "$ORT_COMMIT" >&2; exit 1; }
+  {
+    printf 'error: invalid ORT_COMMIT: %s\n' "$ORT_COMMIT" >&2
+    exit 1
+  }
 [[ "$PACKAGE_REVISION" =~ ^[1-9][0-9]*$ ]] ||
-  { printf 'error: invalid PACKAGE_REVISION: %s\n' "$PACKAGE_REVISION" >&2; exit 1; }
+  {
+    printf 'error: invalid PACKAGE_REVISION: %s\n' "$PACKAGE_REVISION" >&2
+    exit 1
+  }
 export PACKAGE_CHANNEL=stable
 
 export ORT_SOURCE_DIR="${ORT_SOURCE_DIR:-$REPO_ROOT/onnxruntime}"
@@ -136,37 +148,9 @@ write_manifest() {
     printf 'WEBGPU_LINKAGE=%s\n' "$linkage"
     printf 'EXECUTION_PROVIDERS=%s\n' "$providers"
     printf 'BUILD_CONFIG=Release\n'
-    if [ -n "${REPACKAGE_SOURCE_TAG:-}" ]; then
-      [ -n "${REPACKAGE_SOURCE_ASSET:-}" ] || die "missing REPACKAGE_SOURCE_ASSET"
-      [ -n "${REPACKAGE_SOURCE_SHA256:-}" ] || die "missing REPACKAGE_SOURCE_SHA256"
-      printf 'REPACKAGE_SOURCE_TAG=%s\n' "$REPACKAGE_SOURCE_TAG"
-      printf 'REPACKAGE_SOURCE_ASSET=%s\n' "$REPACKAGE_SOURCE_ASSET"
-      printf 'REPACKAGE_SOURCE_SHA256=%s\n' "$REPACKAGE_SOURCE_SHA256"
-    fi
   } >"$path"
 }
 
 prepare_ort_source() {
-  require_dir "$ORT_SOURCE_DIR/.git"
-  local actual_commit
-  actual_commit="$(git -C "$ORT_SOURCE_DIR" rev-parse HEAD)"
-  [ "$actual_commit" = "$ORT_COMMIT" ] ||
-    die "expected ORT source at $ORT_COMMIT, found $actual_commit"
-
-  local patch
-  for patch in "$REPO_ROOT"/patches/*.patch; do
-    if [ "${patch##*/}" = onnxruntime-kleidiai-unused-kernel-name.patch ]; then
-      local kernel_source="$ORT_SOURCE_DIR/onnxruntime/core/mlas/lib/kleidiai/halfgemm_kleidiai.cpp"
-      if [ ! -f "$kernel_source" ] || ! grep -Fq Sve2p1HalfGemmKernelName "$kernel_source"; then
-        log "$(basename "$patch") is not needed for $ORT_REF"
-        continue
-      fi
-    fi
-    if git -C "$ORT_SOURCE_DIR" apply --reverse --check "$patch" >/dev/null 2>&1; then
-      log "$(basename "$patch") already applied"
-    else
-      git -C "$ORT_SOURCE_DIR" apply --check "$patch"
-      git -C "$ORT_SOURCE_DIR" apply "$patch"
-    fi
-  done
+  python3 "$REPO_ROOT/scripts/prepare-source.py" "${1:-all}"
 }

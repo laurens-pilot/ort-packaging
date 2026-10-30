@@ -9,7 +9,7 @@ die() {
   exit 1
 }
 
-[ "$#" -eq 2 ] || die "usage: $0 <ort-version> <package-revision>"
+[[ "$#" -eq 2 || ("$#" -eq 3 && "$3" = --source-only) ]] || die "usage: $0 <ort-version> <package-revision> [--source-only]"
 ort_version="$1"
 package_revision="$2"
 [[ "$ort_version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] ||
@@ -43,20 +43,23 @@ peeled_commit="$(awk -v ref="refs/tags/$ort_ref^{}" '$2 == ref { print $1 }' <<<
 ort_commit="${peeled_commit:-$direct_commit}"
 [[ "$ort_commit" =~ ^[0-9a-f]{40}$ ]] || die "unable to resolve upstream tag $ort_ref"
 
-release_error="$(mktemp)"
-if gh api "repos/$GITHUB_REPOSITORY/releases/tags/$release_tag" --silent 2>"$release_error"; then
-  die "release $release_tag already exists"
-elif ! grep -Fq 'HTTP 404' "$release_error"; then
-  cat "$release_error" >&2
-  die "unable to determine whether release $release_tag exists"
-fi
-target_tag_refs="$(git ls-remote "https://github.com/$GITHUB_REPOSITORY.git" "refs/tags/$release_tag")"
-[ -z "$target_tag_refs" ] || die "tag $release_tag already exists"
+if [ "${3:-}" != --source-only ]; then
+  release_error="$(mktemp)"
+  if gh api "repos/$GITHUB_REPOSITORY/releases/tags/$release_tag" --silent 2>"$release_error"; then
+    die "release $release_tag already exists"
+  elif ! grep -Fq 'HTTP 404' "$release_error"; then
+    cat "$release_error" >&2
+    die "unable to determine whether release $release_tag exists"
+  fi
+  target_tag_refs="$(git ls-remote "https://github.com/$GITHUB_REPOSITORY.git" "refs/tags/$release_tag")"
+  [ -z "$target_tag_refs" ] || die "tag $release_tag already exists"
 
-if [ "$package_revision" -gt 1 ]; then
-  previous_tag="ort-$ort_version-r$((package_revision - 1))"
-  gh api "repos/$GITHUB_REPOSITORY/releases/tags/$previous_tag" \
-    --jq 'if .draft == false and .immutable == true then empty else error("previous release is not published and immutable") end'
+  if [ "$package_revision" -gt 1 ]; then
+    previous_tag="ort-$ort_version-r$((package_revision - 1))"
+    gh api "repos/$GITHUB_REPOSITORY/releases/tags/$previous_tag" \
+      --jq 'if .draft == false and .immutable == true then empty else error("previous release is not published and immutable") end'
+  fi
+
 fi
 
 build_env_sha256="$(sha256sum "$REPO_ROOT/build.env" | awk '{ print $1 }')"

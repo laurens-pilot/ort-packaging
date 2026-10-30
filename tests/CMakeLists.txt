@@ -1,6 +1,11 @@
 cmake_minimum_required(VERSION 3.20)
 project(ort_packaging_runtime_smoke LANGUAGES CXX)
 
+enable_testing()
+add_executable(smoke-values-test smoke-values-test.cpp)
+target_compile_features(smoke-values-test PRIVATE cxx_std_17)
+add_test(NAME smoke-values COMMAND smoke-values-test)
+
 if(NOT DEFINED ORT_INCLUDE_DIR)
   message(FATAL_ERROR "ORT_INCLUDE_DIR must point to the ONNX Runtime C/C++ API headers")
 endif()

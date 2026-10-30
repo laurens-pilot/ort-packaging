@@ -10,8 +10,8 @@ Before building:
 Before publishing:
 
 - [ ] **Assemble release candidate** succeeded for the intended ORT version and package revision.
-- [ ] Android WebGPU passed on representative supported physical devices.
-- [ ] The iOS device slice and vendor-GPU behavior were validated.
+- [ ] The generated device-evidence JSON records Android WebGPU and Java/JNI acceptance against the candidate hash.
+- [ ] The same evidence records iOS device/CoreML acceptance and any Windows GPU checks missing from CI.
 - [ ] The candidate build is less than 14 days old.
 
 After publishing:

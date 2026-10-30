@@ -31,7 +31,7 @@ ndk_strip="$ndk_bin/llvm-strip"
 require_file "$ndk_readelf"
 require_file "$ndk_strip"
 
-prepare_ort_source
+prepare_ort_source "android"
 
 build_dir="$BUILD_ROOT/android-$abi"
 dist_dir="$DIST_ROOT/android-$abi"
@@ -125,3 +125,5 @@ cmp "$ORT_SOURCE_DIR/LICENSE" <(unzip -p "$asset" META-INF/ONNXRUNTIME-LICENSE) 
 cmp "$ORT_SOURCE_DIR/ThirdPartyNotices.txt" <(unzip -p "$asset" META-INF/ThirdPartyNotices.txt) ||
   die "AAR has invalid third-party notices"
 log "created $asset"
+python3 "$REPO_ROOT/scripts/release.py" record "$asset"
+python3 "$REPO_ROOT/scripts/write-build-info.py" "android-$abi"

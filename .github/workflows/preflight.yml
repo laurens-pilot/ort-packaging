@@ -1,0 +1,98 @@
+name: Platform preflight
+
+on:
+  pull_request:
+  schedule:
+    - cron: "17 4 * * 1"
+  workflow_dispatch:
+    inputs:
+      ort_version:
+        description: Stable ORT version; empty uses the last shipped version
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  source:
+    if: github.repository == 'ente/ort-packaging' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    outputs:
+      ort_version: ${{ steps.source.outputs.ort_version }}
+      ort_commit: ${{ steps.source.outputs.ort_commit }}
+      python_version: ${{ steps.source.outputs.python_version }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+      - id: source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUESTED_VERSION: ${{ inputs.ort_version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$REQUESTED_VERSION"
+          if [ -z "$version" ]; then
+            tag="$(gh api repos/ente/ort-packaging/releases/latest --jq .tag_name)"
+            version="${tag#ort-}"
+            version="${version%-r*}"
+          fi
+          bash scripts/resolve-release.sh "$version" 1 --source-only >> "$GITHUB_OUTPUT"
+
+  platform:
+    needs: source
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - host: linux-x64
+            runner: ubuntu-24.04
+          - host: linux-arm64
+            runner: ubuntu-24.04-arm
+          - host: macos-universal
+            runner: macos-15
+          - host: macos-universal
+            runner: macos-15-intel
+          - host: windows-x64
+            runner: windows-2022
+          - host: windows-arm64
+            runner: windows-11-arm
+    env:
+      ORT_SOURCE_DIR: ${{ github.workspace }}/onnxruntime
+      BUILD_ROOT: ${{ github.workspace }}/.build/preflight
+      ORT_VERSION: ${{ needs.source.outputs.ort_version }}
+      ORT_REF: v${{ needs.source.outputs.ort_version }}
+      ORT_COMMIT: ${{ needs.source.outputs.ort_commit }}
+      PACKAGE_REVISION: "1"
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          repository: microsoft/onnxruntime
+          ref: ${{ needs.source.outputs.ort_commit }}
+          path: onnxruntime
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: ${{ needs.source.outputs.python_version }}
+      - name: Install checksum-pinned tools
+        shell: bash
+        run: python scripts/setup-tools.py "${{ matrix.host }}"
+      - name: Verify patches
+        shell: bash
+        run: python scripts/prepare-source.py all
+      - name: Verify compiler, headers and test guards
+        shell: bash
+        run: python scripts/preflight.py "${{ matrix.host }}"
+      - uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699
+        if: matrix.host == 'linux-x64'
+        with:
+          packages: platform-tools
+      - name: Verify Android SDK and NDK selection
+        if: matrix.host == 'linux-x64'
+        shell: bash
+        run: |
+          set -euo pipefail
+          source build.env
+          sdkmanager "platforms;android-$ANDROID_TARGET_SDK" "ndk;$ANDROID_NDK_VERSION" "build-tools;$ANDROID_BUILD_TOOLS_VERSION"
+          test -f "$ANDROID_HOME/ndk/$ANDROID_NDK_VERSION/build/cmake/android.toolchain.cmake"

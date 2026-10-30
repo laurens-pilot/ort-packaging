@@ -1,0 +1,68 @@
+{
+  "ios": {
+    "family": "coreml",
+    "extension": "zip",
+    "webgpu_linkage": "disabled",
+    "execution_providers": "CoreML,CPU"
+  },
+  "macos-arm64": {
+    "family": "coreml",
+    "extension": "tar.gz",
+    "webgpu_linkage": "disabled",
+    "execution_providers": "CoreML,CPU"
+  },
+  "macos-x64": {
+    "family": "coreml",
+    "extension": "tar.gz",
+    "webgpu_linkage": "disabled",
+    "execution_providers": "CoreML,CPU"
+  },
+  "android-universal": {
+    "family": "webgpu",
+    "extension": "aar",
+    "webgpu_linkage": "built-in",
+    "execution_providers": "WebGPU,XNNPACK,CPU"
+  },
+  "android-arm64-v8a": {
+    "family": "webgpu",
+    "extension": "aar",
+    "webgpu_linkage": "built-in",
+    "execution_providers": "WebGPU,XNNPACK,CPU"
+  },
+  "android-armeabi-v7a": {
+    "family": "webgpu",
+    "extension": "aar",
+    "webgpu_linkage": "built-in",
+    "execution_providers": "WebGPU,XNNPACK,CPU"
+  },
+  "android-x86_64": {
+    "family": "webgpu",
+    "extension": "aar",
+    "webgpu_linkage": "built-in",
+    "execution_providers": "WebGPU,XNNPACK,CPU"
+  },
+  "linux-arm64": {
+    "family": "webgpu",
+    "extension": "tar.gz",
+    "webgpu_linkage": "plugin-shared",
+    "execution_providers": "WebGPU,CPU"
+  },
+  "linux-x64": {
+    "family": "webgpu",
+    "extension": "tar.gz",
+    "webgpu_linkage": "plugin-shared",
+    "execution_providers": "WebGPU,CPU"
+  },
+  "windows-arm64": {
+    "family": "webgpu",
+    "extension": "zip",
+    "webgpu_linkage": "plugin-shared",
+    "execution_providers": "WebGPU,CPU"
+  },
+  "windows-x64": {
+    "family": "webgpu",
+    "extension": "zip",
+    "webgpu_linkage": "plugin-shared",
+    "execution_providers": "WebGPU,CPU"
+  }
+}

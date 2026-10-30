@@ -1,8 +1,6 @@
 // Loads the packaged ONNX Runtime dynamically so the smoke test does not hide
 // missing runtime dependencies behind a link-time dependency.
 #define ORT_API_MANUAL_INIT
-#include "onnxruntime_cxx_api.h"
-
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
@@ -10,6 +8,9 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+
+#include "onnxruntime_cxx_api.h"
+#include "smoke-values.h"
 
 #ifdef _WIN32
 #include <windows.h>
@@ -21,9 +22,7 @@ namespace {
 
 using OrtGetApiBaseFunction = const OrtApiBase*(ORT_API_CALL*)();
 
-[[noreturn]] void Fail(const std::string& message) {
-  throw std::runtime_error(message);
-}
+[[noreturn]] void Fail(const std::string& message) { throw std::runtime_error(message); }
 
 void CheckStatus(const OrtApi& api, OrtStatus* status) {
   if (status == nullptr) {
@@ -53,7 +52,8 @@ std::wstring ToOrtPath(const char* path) {
 void* LoadRuntime(const char* path) {
   HMODULE handle = LoadLibraryW(ToOrtPath(path).c_str());
   if (handle == nullptr) {
-    Fail("LoadLibraryW failed for " + std::string(path) + " with error " + std::to_string(GetLastError()));
+    Fail("LoadLibraryW failed for " + std::string(path) + " with error " +
+         std::to_string(GetLastError()));
   }
   return handle;
 }
@@ -61,14 +61,13 @@ void* LoadRuntime(const char* path) {
 void* GetSymbol(void* handle, const char* name) {
   FARPROC symbol = GetProcAddress(static_cast<HMODULE>(handle), name);
   if (symbol == nullptr) {
-    Fail("GetProcAddress failed for " + std::string(name) + " with error " + std::to_string(GetLastError()));
+    Fail("GetProcAddress failed for " + std::string(name) + " with error " +
+         std::to_string(GetLastError()));
   }
   return reinterpret_cast<void*>(symbol);
 }
 #else
-std::string ToOrtPath(const char* path) {
-  return path;
-}
+std::string ToOrtPath(const char* path) { return path; }
 
 void* LoadRuntime(const char* path) {
   void* handle = dlopen(path, RTLD_NOW | RTLD_GLOBAL);
@@ -88,17 +87,19 @@ void* GetSymbol(void* handle, const char* name) {
 }
 #endif
 
-void RunMul(const Ort::Env& env, const ORTCHAR_T* model_path, Ort::SessionOptions& session_options) {
+void RunMul(const Ort::Env& env, const ORTCHAR_T* model_path,
+            Ort::SessionOptions& session_options) {
   Ort::Session session(env, model_path, session_options);
   std::vector<float> input{1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f};
   const std::vector<int64_t> input_shape{3, 2};
   Ort::MemoryInfo memory_info = Ort::MemoryInfo::CreateCpu(OrtDeviceAllocator, OrtMemTypeDefault);
-  Ort::Value input_tensor = Ort::Value::CreateTensor<float>(
-      memory_info, input.data(), input.size(), input_shape.data(), input_shape.size());
+  Ort::Value input_tensor = Ort::Value::CreateTensor<float>(memory_info, input.data(), input.size(),
+                                                            input_shape.data(), input_shape.size());
 
   const char* input_names[] = {"X"};
   const char* output_names[] = {"Y"};
-  auto outputs = session.Run(Ort::RunOptions{nullptr}, input_names, &input_tensor, 1, output_names, 1);
+  auto outputs =
+      session.Run(Ort::RunOptions{nullptr}, input_names, &input_tensor, 1, output_names, 1);
   if (outputs.size() != 1 || !outputs[0].IsTensor()) {
     Fail("Mul smoke test did not return one tensor");
   }
@@ -108,12 +109,9 @@ void RunMul(const Ort::Env& env, const ORTCHAR_T* model_path, Ort::SessionOption
     Fail("Mul smoke test returned the wrong output shape");
   }
 
-  const float expected[] = {1.0f, 4.0f, 9.0f, 16.0f, 25.0f, 36.0f};
   const float* actual = outputs[0].GetTensorData<float>();
-  for (size_t i = 0; i < input.size(); ++i) {
-    if (std::fabs(actual[i] - expected[i]) > 1e-5f) {
-      Fail("Mul smoke test returned an incorrect value at index " + std::to_string(i));
-    }
+  if (!ValidMulOutput(actual, input.size())) {
+    Fail("Mul smoke test returned incorrect or non-finite values");
   }
 }
 
@@ -128,7 +126,8 @@ int main(int argc, char** argv) {
 
   try {
     void* core_handle = LoadRuntime(argv[1]);
-    auto get_api_base = reinterpret_cast<OrtGetApiBaseFunction>(GetSymbol(core_handle, "OrtGetApiBase"));
+    auto get_api_base =
+        reinterpret_cast<OrtGetApiBaseFunction>(GetSymbol(core_handle, "OrtGetApiBase"));
     const OrtApiBase* api_base = get_api_base();
     if (api_base == nullptr) {
       Fail("OrtGetApiBase returned null");
@@ -162,15 +161,19 @@ int main(int argc, char** argv) {
       }
 
       Ort::SessionOptions provider_options;
+      provider_options.AddConfigEntry("session.disable_cpu_ep_fallback", "1");
       CheckStatus(*api, api->SessionOptionsAppendExecutionProvider(
                             provider_options, provider_name.c_str(), nullptr, nullptr, 0));
-      RunMul(env, model_path.c_str(), provider_options);
+      for (size_t iteration = 0; iteration < 8; ++iteration) {
+        RunMul(env, model_path.c_str(), provider_options);
+      }
       std::cout << "BUILTIN_PROVIDER_INFERENCE=passed:" << provider_name << '\n';
       return 0;
     }
 
     const auto plugin_path = ToOrtPath(argv[2]);
-    CheckStatus(*api, api->RegisterExecutionProviderLibrary(env, "webgpu-smoke", plugin_path.c_str()));
+    CheckStatus(*api,
+                api->RegisterExecutionProviderLibrary(env, "webgpu-smoke", plugin_path.c_str()));
     std::cout << "WEBGPU_PLUGIN_REGISTRATION=passed\n";
 
     const OrtEpDevice* const* devices = nullptr;
@@ -195,15 +198,17 @@ int main(int argc, char** argv) {
       std::cout << "WEBGPU_INFERENCE=skipped:no-gpu-device\n";
     } else {
       Ort::SessionOptions webgpu_options;
+      webgpu_options.AddConfigEntry("session.disable_cpu_ep_fallback", "1");
       const char* option_keys[] = {"ep.webgpuexecutionprovider.dawnBackendType"};
       const char* option_values[] = {argv[5]};
       const bool set_backend = std::string(argv[5]) != "-";
-      CheckStatus(*api, api->SessionOptionsAppendExecutionProvider_V2(
-                            webgpu_options, env, &webgpu_device, 1,
-                            set_backend ? option_keys : nullptr,
-                            set_backend ? option_values : nullptr,
-                            set_backend ? 1 : 0));
-      RunMul(env, model_path.c_str(), webgpu_options);
+      CheckStatus(*api,
+                  api->SessionOptionsAppendExecutionProvider_V2(
+                      webgpu_options, env, &webgpu_device, 1, set_backend ? option_keys : nullptr,
+                      set_backend ? option_values : nullptr, set_backend ? 1 : 0));
+      for (size_t iteration = 0; iteration < 8; ++iteration) {
+        RunMul(env, model_path.c_str(), webgpu_options);
+      }
       std::cout << "WEBGPU_INFERENCE=passed\n";
     }
 

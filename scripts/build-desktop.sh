@@ -12,7 +12,7 @@ case "$target" in
 esac
 
 require_cmd python3
-prepare_ort_source
+prepare_ort_source "${target%%-*}"
 build_dir="$BUILD_ROOT/$target"
 dist_dir="$DIST_ROOT/$target"
 rm -rf "$build_dir" "$dist_dir"
@@ -87,6 +87,7 @@ build_args+=(
 build_log="$build_dir/build.log"
 python3 "${build_args[@]}" 2>&1 | tee "$build_log"
 verify_ort_telemetry_disabled "$build_dir"
+python3 "$REPO_ROOT/scripts/check-warnings.py" "$target" "$ORT_VERSION" "$build_log"
 
 if [[ "$target" == macos-* ]]; then
   if grep -Fq "built for newer 'macOS' version" "$build_log"; then
@@ -210,3 +211,5 @@ tar -C "$dist_dir/package" -czf "$asset" .
 write_checksum "$asset"
 cp "$dist_dir/package/manifest.env" "$asset.manifest.env"
 log "created $asset"
+python3 "$REPO_ROOT/scripts/release.py" record "$asset"
+python3 "$REPO_ROOT/scripts/write-build-info.py" "$target"

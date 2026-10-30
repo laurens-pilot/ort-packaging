@@ -13,6 +13,13 @@ esac
 
 require_cmd cmake
 package_dir="$DIST_ROOT/$target/package"
+provider=webgpu
+[[ "$target" != macos-* ]] || provider=coreml
+asset="$DIST_ROOT/$target/onnxruntime-$provider-$target-$ORT_VERSION-$(package_label).tar.gz"
+require_file "$asset"
+rm -rf "$package_dir"
+mkdir -p "$package_dir"
+tar -xzf "$asset" -C "$package_dir"
 test_build_dir="$BUILD_ROOT/$target-runtime-smoke"
 model="$ORT_SOURCE_DIR/onnxruntime/test/testdata/mul_1.onnx"
 headers="$ORT_SOURCE_DIR/include/onnxruntime/core/session"
@@ -59,4 +66,5 @@ fi
 (
   cd "$package_dir"
   "$test_build_dir/runtime-smoke" "$core" "$provider_spec" "$model" "$require_webgpu" "$backend"
-)
+) | tee "$DIST_ROOT/$target/smoke.log"
+python3 "$REPO_ROOT/scripts/release.py" record "$asset" --log "$DIST_ROOT/$target/smoke.log"

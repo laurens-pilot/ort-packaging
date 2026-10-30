@@ -6,6 +6,9 @@ on:
       build_run_id:
         description: Successful Build release candidate run ID
         required: true
+      device_evidence:
+        description: Candidate-bound JSON from scripts/device-evidence.py
+        required: true
 
 concurrency:
   group: ort-publish
@@ -101,6 +104,22 @@ jobs:
             > "$resolved"
           grep -Fqx "ort_commit=$(jq -r .upstream_ort_commit "$CANDIDATE_DIR/build-provenance.json")" "$resolved"
 
+      - name: Verify physical-device acceptance
+        env:
+          DEVICE_EVIDENCE: ${{ inputs.device_evidence }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s\n' "$DEVICE_EVIDENCE" > "$RUNNER_TEMP/device-evidence.json"
+          python3 scripts/release.py verify-devices "$RUNNER_TEMP/release-candidate" "$RUNNER_TEMP/device-evidence.json"
+          echo 'Physical-device acceptance verified against candidate hashes.' >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: device-acceptance
+          path: ${{ runner.temp }}/device-evidence.json
+          retention-days: 90
+
       - name: Determine latest-release status
         id: latest
         env:
@@ -138,6 +157,7 @@ jobs:
           if [ "$LATEST" = true ]; then latest_flag=--latest; fi
           notes="$(mktemp)"
           jq -r .release_notes "$CANDIDATE_DIR/build-provenance.json" > "$notes"
+          printf '\nDevice acceptance: https://github.com/%s/actions/runs/%s\n' "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" >> "$notes"
 
           [ -z "$(git ls-remote "https://github.com/$GITHUB_REPOSITORY.git" "refs/tags/$RELEASE_TAG")" ] || {
             echo "tag $RELEASE_TAG already exists" >&2

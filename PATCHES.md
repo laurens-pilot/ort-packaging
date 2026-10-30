@@ -23,3 +23,5 @@ Remove this patch only when the selected upstream ONNX Runtime version contains 
 ## `onnxruntime-public-vcpkg.patch`
 
 This existing build-system patch keeps the required vcpkg integration reviewable and reproducible for the resolved upstream source. Its applicability is likewise checked by the release-candidate preflight before any platform build starts.
+
+The machine-readable inventory is `config/patches.json`. Shared source preparation records each patch hash and whether it was applied, already present, or not applicable. Platform build provenance includes those records. Unknown source changes continue to fail patch application.

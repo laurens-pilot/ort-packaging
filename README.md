@@ -13,10 +13,18 @@ Prerequisites:
 - The exact packaging code to release is on `main`.
 - The **Validate** workflow for that `main` commit succeeded.
 
-### 1. Build a release candidate
+### 1. Check compatibility before merging
+
+The **Validate** workflow runs static checks and offline negative tests. **Platform preflight** checks the last shipped source against native compilers, CMake, Apple SDKs and Android setup on upstream PRs and every Monday. It does not compile ONNX Runtime. It can also be dispatched with an explicit new ORT version.
+
+For a full branch trial, dispatch **Build release candidate** with **Mode: trial**, choose a platform or all platforms, and enter the ORT version. Trials may reuse an existing package revision. They use the same platform scripts as release builds and never assemble a publishable candidate. Normal release builds retain **Mode: release**, **Platform: all**, and **Branch: main**.
+
+### 2. Build a release candidate
 
 Open [Build release candidate](https://github.com/ente/ort-packaging/actions/workflows/build.yml), select **Run workflow**, and use:
 
+- **Mode:** `release`
+- **Platform:** `all`
 - **Branch:** `main`
 - **ORT version:** the stable upstream version without a `v` prefix, such as `1.28.1`
 - **Package revision:** `1` for the first package of that ORT version; use the next integer only to correct the packaging. Revisions must be sequential.
@@ -33,13 +41,32 @@ gh workflow run build.yml \
 
 The workflow verifies the upstream release, resolves its tag to a commit, applies the repository patches, and builds and tests every package. The candidate is ready only when **Assemble release candidate** succeeds. Candidates expire after 14 days.
 
-### 2. Complete physical-device validation
+### 3. Complete physical-device validation
 
-Before publishing, test Android WebGPU on representative supported physical devices and validate the iOS device slice and vendor-GPU behavior. Hosted CI validates package structure and runtime inference, but it cannot replace these device checks.
+Download the successful run's release-candidate artifact and check out the packaging commit in its provenance. Run the reusable device harness from the repository root with Python 3.12 or newer. Choose an external work directory for generated files. Android needs a configured SDK/NDK, Java, CMake and Ninja; iOS needs Xcode and the signing identity, provisioning profile and entitlements for the smoke app's bundle ID.
 
-### 3. Publish the candidate
+```sh
+python3 scripts/validate-device.py /path/to/candidate \
+  --platform android --device ANDROID_SERIAL \
+  --description 'Device model, Android version and GPU' \
+  --work-dir /external/work/android --evidence /path/to/device-evidence.json
 
-Copy the numeric run ID from the successful candidate build. Open [Publish release](https://github.com/ente/ort-packaging/actions/workflows/publish.yml), select **Run workflow** on `main`, and enter that ID.
+export IOS_SIGNING_IDENTITY='Apple Development: ...'
+export IOS_PROVISIONING_PROFILE=/path/to/smoke.mobileprovision
+export IOS_ENTITLEMENTS=/path/to/smoke.entitlements
+python3 scripts/validate-device.py /path/to/candidate \
+  --platform ios --device IPHONE_UDID \
+  --description 'Device model and iOS version' \
+  --work-dir /external/work/ios --evidence /path/to/device-evidence.json
+```
+
+Android acceptance exercises the universal AAR's ARM64 runtime and Java/JNI loading. Both native harnesses require provider execution without CPU fallback and repeat session creation. The evidence records the exact tested archive hashes; representative Android acceptance does not claim that every Android ABI was executed. Use a fresh evidence file for each candidate.
+
+If Windows CI reports no WebGPU device, run the same helper on a GPU-capable Windows machine with `--platform windows-x64` or `windows-arm64`. Supply a local machine identifier through `--device` and include its OS/GPU in `--description`; CMake and the matching Visual Studio generator must be available. Publication requires Android and iOS device results and any Windows GPU results missing from CI.
+
+### 4. Publish the candidate
+
+Copy the numeric run ID from the successful candidate build. Open [Publish release](https://github.com/ente/ort-packaging/actions/workflows/publish.yml), select **Run workflow** on `main`, and enter that ID. Paste the generated device-evidence JSON into **Device evidence**.
 
 The equivalent CLI command is:
 
@@ -47,12 +74,13 @@ The equivalent CLI command is:
 gh workflow run publish.yml \
   --repo ente/ort-packaging \
   --ref main \
-  -f build_run_id=123456789
+  -f build_run_id=123456789 \
+  -f device_evidence="$(cat /path/to/device-evidence.json)"
 ```
 
 Publication accepts only a successful `build.yml` run from this repository's `main` branch. It revalidates the candidate provenance, checksums, upstream commit, package revision, and target tag before creating an immutable release from the exact packaging commit that produced the candidate. If the candidate expired, run a new build instead.
 
-### 4. Verify the published release
+### 5. Verify the published release
 
 Confirm that the release:
 
@@ -61,7 +89,7 @@ Confirm that the release:
 - includes 11 packages, their 11 checksum sidecars, their 11 manifests, `SHA256SUMS`, and `build-provenance.json`;
 - passes `sha256sum -c SHA256SUMS` after download.
 
-Never replace or retag an existing release. Create the next package revision instead.
+Verify the release attestation with `gh release verify <tag> --repo ente/ort-packaging`. Never replace or retag an existing release. Create the next package revision instead.
 
 ## Packages
 
@@ -92,7 +120,7 @@ For Linux and Windows, register the shared WebGPU plugin and select an EP device
 ## Repository layout
 
 - `build.env`: shared toolchain, deployment-target, ABI, and telemetry policy
-- `config/`: Android and iOS build configurations
+- `config/`: platform build templates, package contracts, pinned tool downloads, patches and warning exceptions
 - `scripts/`: workflow implementation helpers for platform builds, packaging, and packaged-runtime smoke tests
 - `patches/`: reviewable upstream compatibility patches; see [`PATCHES.md`](PATCHES.md)
 - `tests/`: portable packaged-runtime inference smoke tests
@@ -100,7 +128,7 @@ For Linux and Windows, register the shared WebGPU plugin and select an EP device
 - `.github/workflows/build.yml`: version-driven native build and release-candidate assembly
 - `.github/workflows/publish.yml`: immutable publication of one successful build run
 
-The build and smoke-test helpers under `scripts/` are workflow implementation details, not supported standalone release commands. The release workflow supplies their resolved metadata and writes to `.build/` and `.dist/`; local fallback directories `build/` and `dist/` are also ignored by Git.
+The build helpers under `scripts/` are workflow implementation details. `validate-device.py` is the supported entry point for local candidate acceptance. The release workflow supplies their resolved metadata and writes to `.build/` and `.dist/`; local fallback directories `build/` and `dist/` are also ignored by Git.
 
 ## Build and validation design
 
@@ -116,8 +144,16 @@ Always pin a release tag and verify its checksum sidecar downstream.
 
 ## Validation scope
 
-CI verifies package structure, native architectures, required exports, Android JNI contents, checksums, provenance metadata, and packaged runtime loading. It runs CPU and WebGPU inference on native Linux and Windows x64/ARM64 runners, using Mesa's software Vulkan driver on Linux and D3D12 on Windows. It runs CPU and CoreML inference on native macOS x64/ARM64 runners and in an ARM64 iOS Simulator, plus packaged CPU inference in an Android x86_64 emulator.
+CI verifies final archive structure, native architectures, required exports, checksums, provenance metadata, and packaged runtime loading. It requires CPU and WebGPU inference on Linux x64/ARM64 using Mesa's software Vulkan driver. Windows x64/ARM64 requires CPU inference and plugin registration; WebGPU execution is reported separately and may be skipped when a runner has no device. macOS and the iOS Simulator require CoreML execution without CPU fallback. Android x86_64 runs packaged CPU and Java/JNI inference in an emulator. Numeric checks reject NaN and infinity.
+
+Each candidate keeps the existing 35-asset contract. Its versioned provenance embeds archive-bound validation results, compiler/toolchain identities and patch statuses. The publisher checks candidate/run identities, the exact asset set, all manifest fields, checksums and physical-device evidence before publication. Device evidence is retained as a publication-workflow artifact for 90 days. Trial artifacts are never accepted as release candidates.
 
 Hosted Android emulators cannot exercise WebGPU without a host GPU. Android WebGPU and Android ARM device ABIs require representative physical-device validation before a stable release; iOS device-slice and vendor-GPU performance validation are also downstream release criteria. Smoke tests prove runtime loading and basic provider inference, not application-specific operator coverage or performance.
 
 ONNX Runtime and bundled third-party components retain their upstream licences. Runtime archives include the applicable licence and notices.
+
+## Compatibility policy
+
+The last shipped source and the next requested stable release are the compatibility checkpoints. Version-independent dispatch does not guarantee that future upstream source compiles without a reviewed compatibility change. Patch conditions and removal criteria live in `config/patches.json`. Known ARM64 warning exceptions are constrained by target, source path, diagnostic and the pinned dependency/source fingerprint in `config/warnings.json`; every other compiler diagnostic fails validation. Reassess these exceptions on an upstream or compiler upgrade. Disabling KleidiAI and Linux ARM64 LTO remains an explicit existing platform tradeoff, not an automatically restored optimization.
+
+Pinned CMake/vcpkg installation is shared by preflight and package builds. Ccache is not downloaded while compilation caching is disabled. Only verified downloads are retried; failed Android builds are not automatically repeated.

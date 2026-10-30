@@ -1,8 +1,19 @@
 name: Build release candidate
+run-name: ORT ${{ inputs.ort_version }}-r${{ inputs.package_revision }} ${{ inputs.mode }} (${{ inputs.platform }})
 
 on:
   workflow_dispatch:
     inputs:
+      mode:
+        description: Release candidate or non-publishing branch trial
+        type: choice
+        options: [release, trial]
+        default: release
+      platform:
+        description: Trials may select one platform; releases require all
+        type: choice
+        options: [all, android, ios, linux, macos, windows]
+        default: all
       ort_version:
         description: Stable upstream ONNX Runtime version (MAJOR.MINOR.PATCH)
         required: true
@@ -12,19 +23,17 @@ on:
         default: "1"
 
 concurrency:
-  group: ort-build-${{ inputs.ort_version }}-r${{ inputs.package_revision }}
+  group: ort-build-${{ inputs.mode }}-${{ inputs.platform }}-${{ inputs.ort_version }}-r${{ inputs.package_revision }}-${{ github.ref }}
   cancel-in-progress: false
 
 permissions:
   contents: read
+  actions: read
 
 env:
   ORT_SOURCE_DIR: ${{ github.workspace }}/onnxruntime
   BUILD_ROOT: ${{ github.workspace }}/.build
   DIST_ROOT: ${{ github.workspace }}/.dist
-  CCACHE_VERSION: "4.13"
-  CCACHE_LINUX_X64_SHA512: 8c0e218c6aff145a8e2b4a471d9c0d206716b8f1a1b21492e3e4ac685f9488a740d9533fbc0dcb9c372ff3a8782911956af3315bce86a14352db83774c4007b9
-  CCACHE_MACOS_SHA512: 6840fb45d3b6496580e3d57216b7ada758ed2b325cd0258414a93b733252a00c3c9e2fa67a9db5a4d79c16028a807235e3afa507c25665253b5d207f8113ab7f
 
 jobs:
   release-meta:
@@ -50,13 +59,19 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           ORT_VERSION_INPUT: ${{ inputs.ort_version }}
           PACKAGE_REVISION_INPUT: ${{ inputs.package_revision }}
+          BUILD_MODE: ${{ inputs.mode }}
+          TARGET_PLATFORM: ${{ inputs.platform }}
         run: |
           set -euo pipefail
-          [[ "$GITHUB_REF" == refs/heads/main ]] || {
-            echo "release candidates may only build from main; found $GITHUB_REF" >&2
-            exit 1
-          }
-          bash scripts/resolve-release.sh "$ORT_VERSION_INPUT" "$PACKAGE_REVISION_INPUT" >> "$GITHUB_OUTPUT"
+          if [ "$BUILD_MODE" = release ]; then
+            [[ "$GITHUB_REF" == refs/heads/main && "$TARGET_PLATFORM" == all ]]
+            validation="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/validate.yml/runs?head_sha=$GITHUB_SHA&event=push&status=success&per_page=1")"
+            jq --exit-status --arg sha "$GITHUB_SHA" '.workflow_runs | any(.head_sha == $sha and .conclusion == "success")' <<<"$validation" >/dev/null
+            bash scripts/resolve-release.sh "$ORT_VERSION_INPUT" "$PACKAGE_REVISION_INPUT" >> "$GITHUB_OUTPUT"
+          else
+            [ "$BUILD_MODE" = trial ]
+            bash scripts/resolve-release.sh "$ORT_VERSION_INPUT" "$PACKAGE_REVISION_INPUT" --source-only >> "$GITHUB_OUTPUT"
+          fi
 
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -75,7 +90,7 @@ jobs:
         run: |
           set -euo pipefail
           source scripts/common.sh
-          prepare_ort_source
+          prepare_ort_source all
           if ort_supports_no_telemetry; then
             echo "Upstream build supports --no_telemetry"
           else
@@ -86,9 +101,11 @@ jobs:
           cmake -S tests -B "$RUNNER_TEMP/runtime-smoke" \
             -DORT_INCLUDE_DIR="$GITHUB_WORKSPACE/onnxruntime/include/onnxruntime/core/session"
           cmake --build "$RUNNER_TEMP/runtime-smoke" --parallel
+          ctest --test-dir "$RUNNER_TEMP/runtime-smoke" --output-on-failure
 
   android:
     name: Android ${{ matrix.abi }}
+    if: inputs.platform == 'all' || inputs.platform == 'android'
     needs: release-meta
     runs-on: ubuntu-24.04
     timeout-minutes: 360
@@ -110,21 +127,13 @@ jobs:
           path: onnxruntime
           fetch-depth: 1
 
-      - uses: microsoft/onnxruntime-github-actions/setup-build-tools@8bad63a3c05d448311dfa8e5f531171c97471aa1 # v0.0.12
-        with:
-          ccache-version: ${{ env.CCACHE_VERSION }}
-          ccache-hash: ${{ env.CCACHE_LINUX_X64_SHA512 }}
-          add-ccache-to-path: "false"
-          vcpkg-version: "2025.08.27"
-          vcpkg-hash: 9a4b32849792e13bee1d24726f073b3881acae4165206ddf1a6378e44a4ddd05b3ee93f55ff46d8e8873b3cbcd06606212989e248f0bd615a5bf365070074079
-          cmake-version: "3.31.8"
-          cmake-hash: 7939260931098c3f00d2b36de3bee6a0ee3bcae2dba001598c492ed5c82d295c9aa9969654f1ff937fec4d71679541238baaa648c5246f36e14f28f0a62337a0
-          add-cmake-to-path: "true"
-          disable-terrapin: "true"
-
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ needs.release-meta.outputs.python_version }}
+
+      - name: Install checksum-pinned build tools
+        shell: bash
+        run: python scripts/setup-tools.py "linux-x64"
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ needs.release-meta.outputs.node_version }}
@@ -144,7 +153,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends ninja-build unzip zip
           yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager "platforms;android-$ANDROID_TARGET_SDK" "ndk;$ANDROID_NDK_VERSION"
+          sdkmanager "platforms;android-$ANDROID_TARGET_SDK" "ndk;$ANDROID_NDK_VERSION" "build-tools;$ANDROID_BUILD_TOOLS_VERSION"
           if [ "${{ matrix.abi }}" = "x86_64" ]; then
             sdkmanager "emulator" "system-images;android-$ANDROID_TARGET_SDK;google_apis;x86_64"
           fi
@@ -154,68 +163,28 @@ jobs:
 
       - name: Build AAR
         shell: bash
-        run: |
-          if ! scripts/build-android.sh "${{ matrix.abi }}"; then
-            echo "::warning::Android build failed once; retrying from a clean build directory"
-            scripts/build-android.sh "${{ matrix.abi }}"
-          fi
+        run: scripts/build-android.sh "${{ matrix.abi }}"
 
       - name: Run Android packaged runtime inference smoke test
         if: matrix.abi == 'x86_64'
         shell: bash
         run: |
-          set -euo pipefail
-          source build.env
-          export ANDROID_AVD_HOME="$RUNNER_TEMP/android-avd"
-          mkdir -p "$ANDROID_AVD_HOME"
-          echo no | avdmanager create avd --force \
-            --name ort-packaging-smoke \
-            --package "system-images;android-$ANDROID_TARGET_SDK;google_apis;x86_64" \
-            --path "$ANDROID_AVD_HOME/ort-packaging-smoke.avd" \
-            --device medium_phone
-          available_avds="$("$ANDROID_HOME/emulator/emulator" -list-avds)"
-          grep -Fqx 'ort-packaging-smoke' <<<"$available_avds" || {
-            printf 'Created AVD was not visible to the emulator. Available AVDs:\n%s\n' "$available_avds" >&2
-            exit 1
-          }
-          [ ! -e /dev/kvm ] || sudo chmod 666 /dev/kvm
-          emulator_log="$RUNNER_TEMP/android-emulator.log"
-          export ANDROID_SERIAL=emulator-5554
-          dump_emulator_diagnostics() {
-            echo "--- Android emulator diagnostics ---" >&2
-            adb devices -l >&2 || true
-            tail -n 300 "$emulator_log" >&2 || true
-          }
-          cleanup_emulator() {
-            status=$?
-            trap - EXIT
-            if [ "$status" -ne 0 ]; then
-              dump_emulator_diagnostics
-            fi
-            timeout 10 adb emu kill >/dev/null 2>&1 || true
-            exit "$status"
-          }
-          trap cleanup_emulator EXIT
-          adb start-server
-          nohup "$ANDROID_HOME/emulator/emulator" \
-            -avd ort-packaging-smoke \
-            -port 5554 \
-            -no-window -noaudio -no-boot-anim -no-snapshot \
-            -gpu swiftshader >"$emulator_log" 2>&1 &
-          timeout 180 adb wait-for-device
-          # shellcheck disable=SC2016
-          timeout 600 bash -c 'until [ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d "\r")" = "1" ]; do sleep 5; done'
-          timeout 300 scripts/test-android-runtime.sh x86_64
+          scripts/run-android-emulator.sh
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: android-${{ matrix.abi }}
-          path: ${{ env.DIST_ROOT }}/android-${{ matrix.abi }}/*
+          path: |
+            ${{ env.DIST_ROOT }}/android-${{ matrix.abi }}/*.tar.gz*
+            ${{ env.DIST_ROOT }}/android-${{ matrix.abi }}/*.zip*
+            ${{ env.DIST_ROOT }}/android-${{ matrix.abi }}/*.aar*
+            ${{ env.DIST_ROOT }}/android-${{ matrix.abi }}/build-info.json
           if-no-files-found: error
           retention-days: 14
 
   android-universal:
     name: Android universal AAR
+    if: inputs.platform == 'all' || inputs.platform == 'android'
     needs: [release-meta, android]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -247,12 +216,17 @@ jobs:
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: android-universal
-          path: ${{ env.DIST_ROOT }}/android/*
+          path: |
+            ${{ env.DIST_ROOT }}/android/*.tar.gz*
+            ${{ env.DIST_ROOT }}/android/*.zip*
+            ${{ env.DIST_ROOT }}/android/*.aar*
+            ${{ env.DIST_ROOT }}/android/build-info.json
           if-no-files-found: error
           retention-days: 14
 
   ios:
     name: iOS CoreML XCFramework
+    if: inputs.platform == 'all' || inputs.platform == 'ios'
     needs: release-meta
     runs-on: macos-15
     timeout-minutes: 360
@@ -270,20 +244,13 @@ jobs:
           path: onnxruntime
           fetch-depth: 1
 
-      - uses: microsoft/onnxruntime-github-actions/setup-build-tools@8bad63a3c05d448311dfa8e5f531171c97471aa1 # v0.0.12
-        with:
-          ccache-version: ${{ env.CCACHE_VERSION }}
-          ccache-hash: ${{ env.CCACHE_MACOS_SHA512 }}
-          add-ccache-to-path: "false"
-          vcpkg-version: "2025.08.27"
-          vcpkg-hash: 9a4b32849792e13bee1d24726f073b3881acae4165206ddf1a6378e44a4ddd05b3ee93f55ff46d8e8873b3cbcd06606212989e248f0bd615a5bf365070074079
-          cmake-version: "3.31.8"
-          cmake-hash: 99cc9c63ae49f21253efb5921de2ba84ce136018abf08632c92c060ba91d552e0f6acc214e9ba8123dee0cf6d1cf089ca389e321879fd9d719a60d975bcffcc8
-          add-cmake-to-path: "true"
-          disable-terrapin: "true"
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ needs.release-meta.outputs.python_version }}
+
+      - name: Install checksum-pinned build tools
+        shell: bash
+        run: python scripts/setup-tools.py "macos-universal"
 
       - name: Install Apple packaging requirements
         run: |
@@ -299,12 +266,17 @@ jobs:
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ios
-          path: ${{ env.DIST_ROOT }}/ios/*
+          path: |
+            ${{ env.DIST_ROOT }}/ios/*.tar.gz*
+            ${{ env.DIST_ROOT }}/ios/*.zip*
+            ${{ env.DIST_ROOT }}/ios/*.aar*
+            ${{ env.DIST_ROOT }}/ios/build-info.json
           if-no-files-found: error
           retention-days: 14
 
   linux-desktop:
     name: Build ${{ matrix.target }} in manylinux_2_28
+    if: inputs.platform == 'all' || inputs.platform == 'linux'
     needs: release-meta
     runs-on: ${{ matrix.runner }}
     container:
@@ -319,14 +291,10 @@ jobs:
             runner: ubuntu-latest
             machine: x86_64
             container_image: quay.io/pypa/manylinux_2_28_x86_64@sha256:66eb5f6dadae4b343b4c22846adc27d2130ae753a7e59f7eb34de545422badd1
-            cmake_hash: 7939260931098c3f00d2b36de3bee6a0ee3bcae2dba001598c492ed5c82d295c9aa9969654f1ff937fec4d71679541238baaa648c5246f36e14f28f0a62337a0
-            ccache_hash: 8c0e218c6aff145a8e2b4a471d9c0d206716b8f1a1b21492e3e4ac685f9488a740d9533fbc0dcb9c372ff3a8782911956af3315bce86a14352db83774c4007b9
           - target: linux-arm64
             runner: ubuntu-24.04-arm
             machine: aarch64
             container_image: quay.io/pypa/manylinux_2_28_aarch64@sha256:dcf585a7412cf82b37fe692a9c06d32f78e933714c01345693ab7d62624cbfa2
-            cmake_hash: 8eeb07e966a5340c122979dd2e371708a78adccc85200b22bc7e66028e65513bce5ced6c37fe65aedb94000d970186c5c7562d1ab3dbda911061de46b75345d9
-            ccache_hash: ff52299de4253ea66ba39ebb064744fe7cd80e6325a05675cd856e5472883fe0c977f04ffba8e26c06beaa6efe8f3318ae6e0d85ada5bba58ca5228feec2f550
     env:
       CC: gcc
       CXX: g++
@@ -367,17 +335,10 @@ jobs:
         shell: bash
         run: dnf install -y ninja-build patchelf zip
 
-      - uses: microsoft/onnxruntime-github-actions/setup-build-tools@8bad63a3c05d448311dfa8e5f531171c97471aa1 # v0.0.12
-        with:
-          ccache-version: ${{ env.CCACHE_VERSION }}
-          ccache-hash: ${{ matrix.ccache_hash }}
-          add-ccache-to-path: "false"
-          vcpkg-version: "2025.08.27"
-          vcpkg-hash: 9a4b32849792e13bee1d24726f073b3881acae4165206ddf1a6378e44a4ddd05b3ee93f55ff46d8e8873b3cbcd06606212989e248f0bd615a5bf365070074079
-          cmake-version: "3.31.8"
-          cmake-hash: ${{ matrix.cmake_hash }}
-          add-cmake-to-path: "true"
-          disable-terrapin: "true"
+      - name: Install checksum-pinned build tools
+        shell: bash
+        run: python scripts/setup-tools.py "${{ matrix.target }}"
+
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ needs.release-meta.outputs.node_version }}
@@ -394,12 +355,17 @@ jobs:
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ matrix.target }}
-          path: ${{ env.DIST_ROOT }}/${{ matrix.target }}/*
+          path: |
+            ${{ env.DIST_ROOT }}/${{ matrix.target }}/*.tar.gz*
+            ${{ env.DIST_ROOT }}/${{ matrix.target }}/*.zip*
+            ${{ env.DIST_ROOT }}/${{ matrix.target }}/*.aar*
+            ${{ env.DIST_ROOT }}/${{ matrix.target }}/build-info.json
           if-no-files-found: error
           retention-days: 14
 
   linux-runtime-smoke:
     name: Test ${{ matrix.target }} on Ubuntu
+    if: inputs.platform == 'all' || inputs.platform == 'linux'
     needs: [release-meta, linux-desktop]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
@@ -438,18 +404,20 @@ jobs:
 
       - name: Extract package and run CPU/WebGPU inference
         shell: bash
-        run: |
-          set -euo pipefail
-          package_dir="$DIST_ROOT/${{ matrix.target }}/package"
-          archive="$DIST_ROOT/${{ matrix.target }}/onnxruntime-webgpu-${{ matrix.target }}-${{ needs.release-meta.outputs.ort_version }}-${{ needs.release-meta.outputs.package_label }}.tar.gz"
-          [ -f "$archive" ]
-          rm -rf "$package_dir"
-          mkdir -p "$package_dir"
-          tar -xzf "$archive" -C "$package_dir"
-          scripts/test-desktop-runtime.sh "${{ matrix.target }}"
+        run: scripts/test-desktop-runtime.sh "${{ matrix.target }}"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ${{ matrix.target }}-validated
+          path: |
+            ${{ env.DIST_ROOT }}/${{ matrix.target }}/*.tar.gz*
+            ${{ env.DIST_ROOT }}/${{ matrix.target }}/build-info.json
+          if-no-files-found: error
+          retention-days: 14
 
   macos-desktop:
     name: ${{ matrix.target }}
+    if: inputs.platform == 'all' || inputs.platform == 'macos'
     needs: release-meta
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 360
@@ -464,12 +432,8 @@ jobs:
         include:
           - target: macos-x64
             runner: macos-15-intel
-            cmake_hash: 99cc9c63ae49f21253efb5921de2ba84ce136018abf08632c92c060ba91d552e0f6acc214e9ba8123dee0cf6d1cf089ca389e321879fd9d719a60d975bcffcc8
-            ccache_hash: 6840fb45d3b6496580e3d57216b7ada758ed2b325cd0258414a93b733252a00c3c9e2fa67a9db5a4d79c16028a807235e3afa507c25665253b5d207f8113ab7f
           - target: macos-arm64
             runner: macos-15
-            cmake_hash: 99cc9c63ae49f21253efb5921de2ba84ce136018abf08632c92c060ba91d552e0f6acc214e9ba8123dee0cf6d1cf089ca389e321879fd9d719a60d975bcffcc8
-            ccache_hash: 6840fb45d3b6496580e3d57216b7ada758ed2b325cd0258414a93b733252a00c3c9e2fa67a9db5a4d79c16028a807235e3afa507c25665253b5d207f8113ab7f
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -478,20 +442,13 @@ jobs:
           ref: ${{ needs.release-meta.outputs.ort_commit }}
           path: onnxruntime
           fetch-depth: 1
-      - uses: microsoft/onnxruntime-github-actions/setup-build-tools@8bad63a3c05d448311dfa8e5f531171c97471aa1 # v0.0.12
-        with:
-          ccache-version: ${{ env.CCACHE_VERSION }}
-          ccache-hash: ${{ matrix.ccache_hash }}
-          add-ccache-to-path: "false"
-          vcpkg-version: "2025.08.27"
-          vcpkg-hash: 9a4b32849792e13bee1d24726f073b3881acae4165206ddf1a6378e44a4ddd05b3ee93f55ff46d8e8873b3cbcd06606212989e248f0bd615a5bf365070074079
-          cmake-version: "3.31.8"
-          cmake-hash: ${{ matrix.cmake_hash }}
-          add-cmake-to-path: "true"
-          disable-terrapin: "true"
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ needs.release-meta.outputs.python_version }}
+
+      - name: Install checksum-pinned build tools
+        shell: bash
+        run: python scripts/setup-tools.py "macos-universal"
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ needs.release-meta.outputs.node_version }}
@@ -512,12 +469,17 @@ jobs:
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ matrix.target }}
-          path: ${{ env.DIST_ROOT }}/${{ matrix.target }}/*
+          path: |
+            ${{ env.DIST_ROOT }}/${{ matrix.target }}/*.tar.gz*
+            ${{ env.DIST_ROOT }}/${{ matrix.target }}/*.zip*
+            ${{ env.DIST_ROOT }}/${{ matrix.target }}/*.aar*
+            ${{ env.DIST_ROOT }}/${{ matrix.target }}/build-info.json
           if-no-files-found: error
           retention-days: 14
 
   windows:
     name: ${{ matrix.target }}
+    if: inputs.platform == 'all' || inputs.platform == 'windows'
     needs: release-meta
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 360
@@ -526,22 +488,14 @@ jobs:
       ORT_VERSION: ${{ needs.release-meta.outputs.ort_version }}
       ORT_COMMIT: ${{ needs.release-meta.outputs.ort_commit }}
       PACKAGE_REVISION: ${{ needs.release-meta.outputs.package_revision }}
-      CMAKE_GENERATOR: ${{ matrix.cmake_generator }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - target: windows-x64
             runner: windows-2022
-            cmake_generator: Visual Studio 17 2022
-            cmake_version: "3.31.8"
-            cmake_hash: 807b774fcb12defff8ce869e602fc5b6279d5b7bf7229ebcf3f7490da3f887d516b9c49a00d50f9179e552ed8737d19835a19ef8f366d1ffda1ad6f3352a90c2
-            ccache_hash: 205f3b974d4af37065ff54c7030f3372424d8d4eea8c3dd8a39f6625ce044aaa66aadecbfbc714c0d34eb7f96cf92b9633a9b9138858f387a1bfb4ef78c95b5c
           - target: windows-arm64
             runner: windows-11-arm
-            cmake_generator: Visual Studio 18 2026
-            cmake_version: "4.2.3"
-            cmake_hash: ae50dceeb410c6d4473a637ff5e86da0add370239f91de8252b1e2f715933ea63151c082db5db5dadb86ced03cf5d35303bd0c03ce7746430283043c1c4c0d18
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -550,33 +504,13 @@ jobs:
           ref: ${{ needs.release-meta.outputs.ort_commit }}
           path: onnxruntime
           fetch-depth: 1
-      - uses: microsoft/onnxruntime-github-actions/setup-build-tools@8bad63a3c05d448311dfa8e5f531171c97471aa1 # v0.0.12
-        if: matrix.target != 'windows-arm64'
-        with:
-          ccache-version: ${{ env.CCACHE_VERSION }}
-          ccache-hash: ${{ matrix.ccache_hash }}
-          add-ccache-to-path: "false"
-          vcpkg-version: "2025.08.27"
-          vcpkg-hash: 9a4b32849792e13bee1d24726f073b3881acae4165206ddf1a6378e44a4ddd05b3ee93f55ff46d8e8873b3cbcd06606212989e248f0bd615a5bf365070074079
-          cmake-version: ${{ matrix.cmake_version }}
-          cmake-hash: ${{ matrix.cmake_hash }}
-          add-cmake-to-path: "true"
-          disable-terrapin: "true"
-      # v0.0.12 constructs a nonexistent cmake-*-windows-aarch64 URL. v0.0.9
-      # is retained only for this runner, which v0.0.9 (and pilot.6) proved uses
-      # the valid Windows ARM64 CMake archive.
-      - uses: microsoft/onnxruntime-github-actions/setup-build-tools@d19341fb036c43a947a2c0e4a53ad4d15e10bc5c # v0.0.9
-        if: matrix.target == 'windows-arm64'
-        with:
-          vcpkg-version: "2025.08.27"
-          vcpkg-hash: 9a4b32849792e13bee1d24726f073b3881acae4165206ddf1a6378e44a4ddd05b3ee93f55ff46d8e8873b3cbcd06606212989e248f0bd615a5bf365070074079
-          cmake-version: ${{ matrix.cmake_version }}
-          cmake-hash: ${{ matrix.cmake_hash }}
-          add-cmake-to-path: "true"
-          disable-terrapin: "true"
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ needs.release-meta.outputs.python_version }}
+
+      - name: Install checksum-pinned build tools
+        shell: bash
+        run: python scripts/setup-tools.py "${{ matrix.target }}"
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ needs.release-meta.outputs.node_version }}
@@ -612,12 +546,17 @@ jobs:
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ matrix.target }}
-          path: ${{ env.DIST_ROOT }}/${{ matrix.target }}/*
+          path: |
+            ${{ env.DIST_ROOT }}/${{ matrix.target }}/*.tar.gz*
+            ${{ env.DIST_ROOT }}/${{ matrix.target }}/*.zip*
+            ${{ env.DIST_ROOT }}/${{ matrix.target }}/*.aar*
+            ${{ env.DIST_ROOT }}/${{ matrix.target }}/build-info.json
           if-no-files-found: error
           retention-days: 14
 
   candidate:
     name: Assemble release candidate
+    if: inputs.mode == 'release' && inputs.platform == 'all'
     needs: [release-meta, android-universal, ios, linux-runtime-smoke, macos-desktop, windows]
     runs-on: ubuntu-24.04
     steps:
@@ -635,7 +574,7 @@ jobs:
       - name: Download Linux artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          pattern: linux-*
+          pattern: linux-*-validated
           path: ${{ runner.temp }}/artifacts
       - name: Download macOS artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -661,100 +600,7 @@ jobs:
           RELEASE_TAG: ${{ needs.release-meta.outputs.release_tag }}
           BUILD_ENV_SHA256: ${{ needs.release-meta.outputs.build_env_sha256 }}
         run: |
-          set -euo pipefail
-          mkdir release-assets
-          mapfile -d '' binaries < <(
-            find "$RUNNER_TEMP/artifacts" -type f \
-              \( -name '*.aar' -o -name '*.tar.gz' -o -name '*.zip' \) \
-              -print0 | sort -z
-          )
-          [ "${#binaries[@]}" -eq 11 ]
-
-          for binary in "${binaries[@]}"; do
-            checksum="$binary.sha256"
-            manifest="$binary.manifest.env"
-            [ -f "$checksum" ]
-            [ -f "$manifest" ]
-
-            expected="$(tr -d '[:space:]' <"$checksum")"
-            [[ "$expected" =~ ^[0-9a-f]{64}$ ]]
-            actual="$(sha256sum "$binary" | awk '{print $1}')"
-            [ "$actual" = "$expected" ]
-            grep -Fqx "ORT_REF=$ORT_REF" "$manifest"
-            grep -Fqx "ORT_VERSION=$ORT_VERSION" "$manifest"
-            grep -Fqx "ORT_COMMIT=$ORT_COMMIT" "$manifest"
-            grep -Fqx "ORT_TELEMETRY=$ORT_TELEMETRY" "$manifest"
-            grep -Fqx "PACKAGING_COMMIT=$GITHUB_SHA" "$manifest"
-            grep -Fqx "PACKAGE_CHANNEL=$PACKAGE_CHANNEL" "$manifest"
-            grep -Fqx "PACKAGE_REVISION=$PACKAGE_REVISION" "$manifest"
-            grep -Fqx "PACKAGE_LABEL=$PACKAGE_LABEL" "$manifest"
-            grep -Fqx 'ORT_CORE_INCLUDED=1' "$manifest"
-            target="$(awk -F= '$1 == "TARGET" { print $2 }' "$manifest")"
-            [ -n "$target" ]
-            cp "$binary" "$checksum" "$manifest" release-assets/
-          done
-          [ "$(find release-assets -maxdepth 1 -type f | wc -l)" -eq 33 ]
-
-          set -a
-          source build.env
-          set +a
-          python3 - <<'PY'
-          import json
-          import os
-
-          release_notes = (
-              f"Custom ONNX Runtime packaging build for {os.environ['ORT_REF']}.\n\n"
-              f"Package channel: stable ({os.environ['PACKAGE_LABEL']}). "
-              "Telemetry is compiled out of every package. "
-              f"Android assets target API {os.environ['ANDROID_MIN_SDK']} and contain a custom "
-              "ONNX Runtime core with WebGPU and XNNPACK built in. Linux and Windows runtime "
-              "bundles contain a matching custom ONNX Runtime core and WebGPU plugin; Linux "
-              f"packages require no newer than GLIBC {os.environ['LINUX_MAX_GLIBC']} and "
-              f"GLIBCXX {os.environ['LINUX_MAX_GLIBCXX']}, and Windows archives include the "
-              f"checksum-pinned DXC {os.environ['DXC_VERSION']} runtime DLLs and their licenses. "
-              "macOS archives contain a CoreML-enabled ORT core targeting macOS "
-              f"{os.environ['MACOS_MIN_VERSION']} and later, with no WebGPU provider. The iOS "
-              "ZIP contains one static-library XCFramework with device and ARM64 Simulator "
-              f"slices, CoreML and CPU support, and an iOS {os.environ['IOS_MIN_VERSION']} "
-              "deployment target. Custom-built binaries are stripped of or packaged without "
-              "debug symbol data. CI ran packaged-runtime inference tests on every native "
-              "runner before publication. Every binary has a verified SHA-256 sidecar and "
-              "build manifest. The build-provenance.json asset records the source commits and "
-              "release inputs."
-          )
-          provenance = {
-              "release_tag": os.environ["RELEASE_TAG"],
-              "packaging_commit": os.environ["GITHUB_SHA"],
-              "upstream_ort_ref": os.environ["ORT_REF"],
-              "upstream_ort_version": os.environ["ORT_VERSION"],
-              "upstream_ort_commit": os.environ["ORT_COMMIT"],
-              "ort_telemetry": os.environ["ORT_TELEMETRY"],
-              "build_env_sha256": os.environ["BUILD_ENV_SHA256"],
-              "package_channel": os.environ["PACKAGE_CHANNEL"],
-              "package_revision": int(os.environ["PACKAGE_REVISION"]),
-              "package_label": os.environ["PACKAGE_LABEL"],
-              "release_scope": "all",
-              "github_repository": os.environ["GITHUB_REPOSITORY"],
-              "github_build_run_id": int(os.environ["GITHUB_RUN_ID"]),
-              "github_build_run_attempt": int(os.environ["GITHUB_RUN_ATTEMPT"]),
-              "github_workflow_ref": os.environ["GITHUB_WORKFLOW_REF"],
-              "release_notes": release_notes,
-          }
-          with open("release-assets/build-provenance.json", "w", encoding="utf-8") as provenance_file:
-              json.dump(provenance, provenance_file, indent=2, sort_keys=True)
-              provenance_file.write("\n")
-          PY
-          [ "$(find release-assets -maxdepth 1 -type f | wc -l)" -eq 34 ]
-
-          (
-            cd release-assets
-            mapfile -t binaries < <(find . -maxdepth 1 -type f \
-              \( -name '*.aar' -o -name '*.tar.gz' -o -name '*.zip' \) | sort)
-            sha256sum "${binaries[@]}" > SHA256SUMS
-          )
-          bash scripts/verify-release-candidate.sh \
-            release-assets "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$GITHUB_SHA" \
-            >/dev/null
+          python3 scripts/release.py assemble "$RUNNER_TEMP/artifacts" release-assets
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -769,13 +615,10 @@ jobs:
         shell: bash
         run: |
           {
-            echo "## $RELEASE_TAG is ready"
+            echo "## $RELEASE_TAG candidate built"
             echo
-            echo "Publish this exact candidate with:"
-            echo
-            echo '```sh'
-            echo "gh workflow run publish.yml --repo $GITHUB_REPOSITORY --ref main -f build_run_id=$GITHUB_RUN_ID"
-            echo '```'
+            echo "Download and validate this candidate with scripts/validate-device.py."
+            echo "Publish from main with build_run_id=$GITHUB_RUN_ID and the generated device-evidence JSON."
             echo
             echo "Candidate artifacts expire after 14 days."
           } >> "$GITHUB_STEP_SUMMARY"

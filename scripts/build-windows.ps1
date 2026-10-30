@@ -60,11 +60,8 @@ if ($hostArch -ne $requiredHostArch) {
 
 $actualCommit = git -C $ortSource rev-parse HEAD
 if ($actualCommit -ne $env:ORT_COMMIT) { throw "expected ORT $($env:ORT_COMMIT), found $actualCommit" }
-git -C $ortSource apply --reverse --check (Join-Path $RepoRoot "patches/onnxruntime-public-vcpkg.patch") 2>$null
-if ($LASTEXITCODE -ne 0) {
-    git -C $ortSource apply (Join-Path $RepoRoot "patches/onnxruntime-public-vcpkg.patch")
-    if ($LASTEXITCODE -ne 0) { throw "failed to apply public-vcpkg patch" }
-}
+python (Join-Path $RepoRoot "scripts/prepare-source.py") windows
+if ($LASTEXITCODE -ne 0) { throw "failed to prepare ONNX Runtime source" }
 
 $ortBuildArgs = Join-Path $ortSource "tools/ci_build/build_args.py"
 if (-not (Test-Path $ortBuildArgs)) { throw "missing ONNX Runtime build argument parser: $ortBuildArgs" }
@@ -97,16 +94,8 @@ if ($noTelemetrySupported) {
     $buildArgs += "--no_telemetry"
 }
 if ($target -eq "windows-arm64") {
-    # KleidiAI 1.20.0 calls a half-float conversion that is not declared by its
-    # MSVC ARM64 configuration. Keep the correct MLAS fallback until upstream
-    # supports this toolchain rather than shipping a potentially dead-stripped
-    # unresolved call.
     $buildArgs += "--no_kleidiai"
 
-    # Dawn's pinned source has exhaustive enum switches ending in
-    # DAWN_UNREACHABLE, which native ARM64 MSVC does not recognize as returning.
-    # The exact warnings are allowlisted below and the packaged runtime is then
-    # exercised by test-windows-runtime.ps1 in the same release job.
     $buildArgs += "--compile_no_warning_as_error"
 }
 $buildLog = Join-Path $buildDir "build.log"
@@ -114,25 +103,8 @@ python @buildArgs 2>&1 | Tee-Object -FilePath $buildLog
 if ($LASTEXITCODE -ne 0) { throw "ONNX Runtime build failed" }
 Assert-OrtTelemetryDisabled $buildDir
 
-if ($target -eq "windows-arm64") {
-    $warnings = @(Select-String -Path $buildLog -Pattern 'warning C\d{4}:' | ForEach-Object { $_.Line })
-    $undeclaredCalls = @($warnings | Where-Object { $_ -match 'warning C4013:' })
-    if ($undeclaredCalls.Count -ne 0) {
-        throw "Windows ARM64 build contains undeclared function calls: $($undeclaredCalls -join [Environment]::NewLine)"
-    }
-
-    $missingReturnWarnings = @($warnings | Where-Object { $_ -match 'warning C4715:' })
-    $allowedWarnings = @(
-        "warning C4715: \x27.*::ToDXGIPowerPreference\x27: not all control paths return a value",
-        "warning C4715: \x27.*::DXGITextureFormat\x27: not all control paths return a value",
-        "warning C4715: \x27.*::DXGITypelessTextureFormat\x27: not all control paths return a value"
-    )
-    foreach ($warning in $missingReturnWarnings) {
-        if (-not ($allowedWarnings | Where-Object { $warning -match $_ })) {
-            throw "unexpected Windows ARM64 compiler warning: $warning"
-        }
-    }
-}
+python (Join-Path $RepoRoot "scripts/check-warnings.py") $target $env:ORT_VERSION $buildLog
+if ($LASTEXITCODE -ne 0) { throw "unreviewed compiler warnings" }
 
 $outputDir = Join-Path $buildDir "Release/Release"
 $plugin = Join-Path $outputDir "onnxruntime_providers_webgpu.dll"
@@ -208,3 +180,8 @@ $hash = (Get-FileHash $asset -Algorithm SHA256).Hash.ToLowerInvariant()
 [System.IO.File]::WriteAllText("$asset.sha256", "$hash`n", $utf8NoBom)
 [System.IO.File]::WriteAllText("$asset.manifest.env", $manifestText, $utf8NoBom)
 Write-Host "created $asset"
+
+python (Join-Path $RepoRoot "scripts/release.py") record $asset
+if ($LASTEXITCODE -ne 0) { throw "failed to record Windows package structure" }
+python (Join-Path $RepoRoot "scripts/write-build-info.py") $target
+if ($LASTEXITCODE -ne 0) { throw "failed to record Windows build details" }
