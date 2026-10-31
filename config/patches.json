@@ -1,5 +1,0 @@
-[
-  {"file":"onnxruntime-public-vcpkg.patch","platforms":["android","ios","linux","macos","windows"],"reason":"Use public vcpkg downloads for Android AAR builds.","remove_when":"Upstream Android packaging no longer enables the internal asset cache."},
-  {"file":"onnxruntime-coreml-runtime-availability.patch","platforms":["android","ios","linux","macos"],"reason":"Preserve runtime guards for the supported Apple deployment targets.","remove_when":"Equivalent availability checks are present upstream."},
-  {"file":"onnxruntime-kleidiai-unused-kernel-name.patch","platforms":["android","ios","linux","macos"],"contains":["onnxruntime/core/mlas/lib/kleidiai/halfgemm_kleidiai.cpp","Sve2p1HalfGemmKernelName"],"reason":"Keep strict Clang release warnings for the unused optional kernel label.","remove_when":"The label is annotated or removed upstream."}
-]

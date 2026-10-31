@@ -16,7 +16,7 @@ require_cmd xcodebuild
 require_cmd xcrun
 require_cmd zip
 require_file "$REPO_ROOT/config/ios-coreml.json"
-prepare_ort_source "ios"
+prepare_ort_source
 
 build_dir="$BUILD_ROOT/ios"
 dist_dir="$DIST_ROOT/ios"
@@ -178,5 +178,3 @@ asset="$dist_dir/onnxruntime-coreml-ios-$ORT_VERSION-$(package_label).zip"
 write_checksum "$asset"
 cp "$package_dir/manifest.env" "$asset.manifest.env"
 log "created $asset"
-python3 "$REPO_ROOT/scripts/release.py" record "$asset"
-python3 "$REPO_ROOT/scripts/write-build-info.py" "ios"

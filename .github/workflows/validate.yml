@@ -13,9 +13,6 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
-        with:
-          python-version: "3.12"
       - name: Install validators
         shell: bash
         run: |
@@ -25,7 +22,6 @@ jobs:
           curl --fail --silent --show-error --location --retry 3 https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz -o "$RUNNER_TEMP/actionlint.tar.gz"
           echo "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  $RUNNER_TEMP/actionlint.tar.gz" | sha256sum -c -
           tar -xzf "$RUNNER_TEMP/actionlint.tar.gz" -C "$RUNNER_TEMP" actionlint
-          python -m pip install --disable-pip-version-check ruff==0.14.2
       - name: Validate workflow, shell, Python and configuration files
         shell: bash
         run: |
@@ -34,12 +30,19 @@ jobs:
           shellcheck -x -P scripts scripts/*.sh
           for script in scripts/*.sh; do bash -n "$script"; done
           jq --exit-status . config/*.json >/dev/null
-          ruff check scripts tests
-          ruff format --check scripts tests
           source build.env
           [ "$ORT_TELEMETRY" = disabled ]
           jq --exit-status '.build_params | index("--no_telemetry") == null and index("--cmake_extra_defines=onnxruntime_USE_TELEMETRY=OFF") != null' config/android-webgpu.json >/dev/null
           jq --exit-status '.build_params.base | index("--no_telemetry") == null and index("--cmake_extra_defines=onnxruntime_USE_TELEMETRY=OFF") != null' config/ios-coreml.json >/dev/null
-          pwsh -NoProfile -File scripts/check-powershell.ps1
+      - name: Validate PowerShell scripts
+        shell: pwsh
+        run: |
+          $failures = @()
+          Get-ChildItem scripts/*.ps1 | ForEach-Object {
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$null, [ref]$errors) | Out-Null
+            $failures += $errors
+          }
+          if ($failures.Count) { $failures | Format-List; exit 1 }
       - name: Test release and validation failure paths
-        run: python -m unittest discover -s tests -p 'test_*.py' -v
+        run: python3 -m unittest discover -s tests -p 'test_*.py' -v

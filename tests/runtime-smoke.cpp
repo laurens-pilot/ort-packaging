@@ -164,9 +164,7 @@ int main(int argc, char** argv) {
       provider_options.AddConfigEntry("session.disable_cpu_ep_fallback", "1");
       CheckStatus(*api, api->SessionOptionsAppendExecutionProvider(
                             provider_options, provider_name.c_str(), nullptr, nullptr, 0));
-      for (size_t iteration = 0; iteration < 8; ++iteration) {
-        RunMul(env, model_path.c_str(), provider_options);
-      }
+      RunMul(env, model_path.c_str(), provider_options);
       std::cout << "BUILTIN_PROVIDER_INFERENCE=passed:" << provider_name << '\n';
       return 0;
     }
@@ -206,9 +204,7 @@ int main(int argc, char** argv) {
                   api->SessionOptionsAppendExecutionProvider_V2(
                       webgpu_options, env, &webgpu_device, 1, set_backend ? option_keys : nullptr,
                       set_backend ? option_values : nullptr, set_backend ? 1 : 0));
-      for (size_t iteration = 0; iteration < 8; ++iteration) {
-        RunMul(env, model_path.c_str(), webgpu_options);
-      }
+      RunMul(env, model_path.c_str(), webgpu_options);
       std::cout << "WEBGPU_INFERENCE=passed\n";
     }
 

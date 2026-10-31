@@ -53,4 +53,3 @@ done
 unzip -l "$asset" | grep -q 'META-INF/ONNXRUNTIME-LICENSE' || die "merged AAR is missing the ONNX Runtime license"
 unzip -l "$asset" | grep -q 'META-INF/ThirdPartyNotices.txt' || die "merged AAR is missing third-party notices"
 log "created $asset"
-python3 "$REPO_ROOT/scripts/release.py" record "$asset"

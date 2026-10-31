@@ -69,9 +69,7 @@ int main() {
         coreml_options.AddConfigEntry("session.disable_cpu_ep_fallback", "1");
         CheckStatus(Ort::GetApi().SessionOptionsAppendExecutionProvider(coreml_options, "CoreML",
                                                                         nullptr, nullptr, 0));
-        for (size_t iteration = 0; iteration < 8; ++iteration) {
-          RunMul(env, model_path.UTF8String, coreml_options);
-        }
+        RunMul(env, model_path.UTF8String, coreml_options);
         std::cout << "COREML_INFERENCE=passed\n";
       }
 

@@ -90,7 +90,7 @@ jobs:
         run: |
           set -euo pipefail
           source scripts/common.sh
-          prepare_ort_source all
+          prepare_ort_source
           if ort_supports_no_telemetry; then
             echo "Upstream build supports --no_telemetry"
           else
@@ -153,7 +153,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends ninja-build unzip zip
           yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager "platforms;android-$ANDROID_TARGET_SDK" "ndk;$ANDROID_NDK_VERSION" "build-tools;$ANDROID_BUILD_TOOLS_VERSION"
+          sdkmanager "platforms;android-$ANDROID_TARGET_SDK" "ndk;$ANDROID_NDK_VERSION"
           if [ "${{ matrix.abi }}" = "x86_64" ]; then
             sdkmanager "emulator" "system-images;android-$ANDROID_TARGET_SDK;google_apis;x86_64"
           fi
@@ -169,16 +169,53 @@ jobs:
         if: matrix.abi == 'x86_64'
         shell: bash
         run: |
-          scripts/run-android-emulator.sh
+          set -euo pipefail
+          source build.env
+          export ANDROID_AVD_HOME="$RUNNER_TEMP/android-avd"
+          mkdir -p "$ANDROID_AVD_HOME"
+          echo no | avdmanager create avd --force \
+            --name ort-packaging-smoke \
+            --package "system-images;android-$ANDROID_TARGET_SDK;google_apis;x86_64" \
+            --path "$ANDROID_AVD_HOME/ort-packaging-smoke.avd" \
+            --device medium_phone
+          available_avds="$("$ANDROID_HOME/emulator/emulator" -list-avds)"
+          grep -Fqx 'ort-packaging-smoke' <<<"$available_avds" || {
+            printf 'Created AVD was not visible to the emulator. Available AVDs:\n%s\n' "$available_avds" >&2
+            exit 1
+          }
+          [ ! -e /dev/kvm ] || sudo chmod 666 /dev/kvm
+          emulator_log="$RUNNER_TEMP/android-emulator.log"
+          export ANDROID_SERIAL=emulator-5554
+          dump_emulator_diagnostics() {
+            echo "--- Android emulator diagnostics ---" >&2
+            adb devices -l >&2 || true
+            tail -n 300 "$emulator_log" >&2 || true
+          }
+          cleanup_emulator() {
+            status=$?
+            trap - EXIT
+            if [ "$status" -ne 0 ]; then
+              dump_emulator_diagnostics
+            fi
+            timeout 10 adb emu kill >/dev/null 2>&1 || true
+            exit "$status"
+          }
+          trap cleanup_emulator EXIT
+          adb start-server
+          nohup "$ANDROID_HOME/emulator/emulator" \
+            -avd ort-packaging-smoke \
+            -port 5554 \
+            -no-window -noaudio -no-boot-anim -no-snapshot \
+            -gpu swiftshader >"$emulator_log" 2>&1 &
+          timeout 180 adb wait-for-device
+          # shellcheck disable=SC2016
+          timeout 600 bash -c 'until [ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d "\r")" = "1" ]; do sleep 5; done'
+          timeout 300 scripts/test-android-runtime.sh x86_64
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: android-${{ matrix.abi }}
-          path: |
-            ${{ env.DIST_ROOT }}/android-${{ matrix.abi }}/*.tar.gz*
-            ${{ env.DIST_ROOT }}/android-${{ matrix.abi }}/*.zip*
-            ${{ env.DIST_ROOT }}/android-${{ matrix.abi }}/*.aar*
-            ${{ env.DIST_ROOT }}/android-${{ matrix.abi }}/build-info.json
+          path: ${{ env.DIST_ROOT }}/android-${{ matrix.abi }}/*
           if-no-files-found: error
           retention-days: 14
 
@@ -216,11 +253,7 @@ jobs:
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: android-universal
-          path: |
-            ${{ env.DIST_ROOT }}/android/*.tar.gz*
-            ${{ env.DIST_ROOT }}/android/*.zip*
-            ${{ env.DIST_ROOT }}/android/*.aar*
-            ${{ env.DIST_ROOT }}/android/build-info.json
+          path: ${{ env.DIST_ROOT }}/android/*
           if-no-files-found: error
           retention-days: 14
 
@@ -266,11 +299,7 @@ jobs:
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ios
-          path: |
-            ${{ env.DIST_ROOT }}/ios/*.tar.gz*
-            ${{ env.DIST_ROOT }}/ios/*.zip*
-            ${{ env.DIST_ROOT }}/ios/*.aar*
-            ${{ env.DIST_ROOT }}/ios/build-info.json
+          path: ${{ env.DIST_ROOT }}/ios/*
           if-no-files-found: error
           retention-days: 14
 
@@ -355,11 +384,7 @@ jobs:
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ matrix.target }}
-          path: |
-            ${{ env.DIST_ROOT }}/${{ matrix.target }}/*.tar.gz*
-            ${{ env.DIST_ROOT }}/${{ matrix.target }}/*.zip*
-            ${{ env.DIST_ROOT }}/${{ matrix.target }}/*.aar*
-            ${{ env.DIST_ROOT }}/${{ matrix.target }}/build-info.json
+          path: ${{ env.DIST_ROOT }}/${{ matrix.target }}/*
           if-no-files-found: error
           retention-days: 14
 
@@ -404,16 +429,15 @@ jobs:
 
       - name: Extract package and run CPU/WebGPU inference
         shell: bash
-        run: scripts/test-desktop-runtime.sh "${{ matrix.target }}"
-
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
-        with:
-          name: ${{ matrix.target }}-validated
-          path: |
-            ${{ env.DIST_ROOT }}/${{ matrix.target }}/*.tar.gz*
-            ${{ env.DIST_ROOT }}/${{ matrix.target }}/build-info.json
-          if-no-files-found: error
-          retention-days: 14
+        run: |
+          set -euo pipefail
+          package_dir="$DIST_ROOT/${{ matrix.target }}/package"
+          archive="$DIST_ROOT/${{ matrix.target }}/onnxruntime-webgpu-${{ matrix.target }}-${{ needs.release-meta.outputs.ort_version }}-${{ needs.release-meta.outputs.package_label }}.tar.gz"
+          [ -f "$archive" ]
+          rm -rf "$package_dir"
+          mkdir -p "$package_dir"
+          tar -xzf "$archive" -C "$package_dir"
+          scripts/test-desktop-runtime.sh "${{ matrix.target }}"
 
   macos-desktop:
     name: ${{ matrix.target }}
@@ -469,11 +493,7 @@ jobs:
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ matrix.target }}
-          path: |
-            ${{ env.DIST_ROOT }}/${{ matrix.target }}/*.tar.gz*
-            ${{ env.DIST_ROOT }}/${{ matrix.target }}/*.zip*
-            ${{ env.DIST_ROOT }}/${{ matrix.target }}/*.aar*
-            ${{ env.DIST_ROOT }}/${{ matrix.target }}/build-info.json
+          path: ${{ env.DIST_ROOT }}/${{ matrix.target }}/*
           if-no-files-found: error
           retention-days: 14
 
@@ -546,11 +566,7 @@ jobs:
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ matrix.target }}
-          path: |
-            ${{ env.DIST_ROOT }}/${{ matrix.target }}/*.tar.gz*
-            ${{ env.DIST_ROOT }}/${{ matrix.target }}/*.zip*
-            ${{ env.DIST_ROOT }}/${{ matrix.target }}/*.aar*
-            ${{ env.DIST_ROOT }}/${{ matrix.target }}/build-info.json
+          path: ${{ env.DIST_ROOT }}/${{ matrix.target }}/*
           if-no-files-found: error
           retention-days: 14
 
@@ -561,30 +577,10 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-      - name: Download Android artifacts
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - name: Download platform artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
-          pattern: android-*
-          path: ${{ runner.temp }}/artifacts
-      - name: Download iOS artifacts
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: ios
-          path: ${{ runner.temp }}/artifacts
-      - name: Download Linux artifacts
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          pattern: linux-*-validated
-          path: ${{ runner.temp }}/artifacts
-      - name: Download macOS artifacts
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          pattern: macos-*
-          path: ${{ runner.temp }}/artifacts
-      - name: Download Windows artifacts
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          pattern: windows-*
+          pattern: "{android-*,ios,linux-*,macos-*,windows-*}"
           path: ${{ runner.temp }}/artifacts
 
       - name: Collect and verify assets
@@ -600,7 +596,70 @@ jobs:
           RELEASE_TAG: ${{ needs.release-meta.outputs.release_tag }}
           BUILD_ENV_SHA256: ${{ needs.release-meta.outputs.build_env_sha256 }}
         run: |
-          python3 scripts/release.py assemble "$RUNNER_TEMP/artifacts" release-assets
+          set -euo pipefail
+          mkdir release-assets
+          mapfile -d '' binaries < <(
+            find "$RUNNER_TEMP/artifacts" -type f \
+              \( -name '*.aar' -o -name '*.tar.gz' -o -name '*.zip' \) \
+              -print0 | sort -z
+          )
+          [ "${#binaries[@]}" -eq 11 ]
+
+          for binary in "${binaries[@]}"; do
+            cp "$binary" "$binary.sha256" "$binary.manifest.env" release-assets/
+          done
+
+          set -a
+          source build.env
+          set +a
+          python3 - <<'PY'
+          import json
+          import os
+
+          release_notes = (
+              f"Custom ONNX Runtime packages for {os.environ['ORT_REF']} ({os.environ['PACKAGE_LABEL']}). "
+              "Telemetry is compiled out. Every archive has a verified SHA-256 sidecar and build manifest. "
+              f"Android requires API {os.environ['ANDROID_MIN_SDK']}; Apple targets are macOS "
+              f"{os.environ['MACOS_MIN_VERSION']} and iOS {os.environ['IOS_MIN_VERSION']}. Linux requires "
+              f"no newer than GLIBC {os.environ['LINUX_MAX_GLIBC']} and GLIBCXX {os.environ['LINUX_MAX_GLIBCXX']}. "
+              "CI runs packaged CPU inference, Linux WebGPU using software Vulkan, macOS/iOS Simulator "
+              "CoreML, and Android x86_64 emulator CPU inference. Windows verifies CPU inference and "
+              "WebGPU plugin registration; GPU inference may be skipped when no device is available. "
+              "See job logs for actual GPU results and complete the physical-device release checklist "
+              "before publication. Source commits and release inputs are recorded in build-provenance.json."
+          )
+          provenance = {
+              "release_tag": os.environ["RELEASE_TAG"],
+              "packaging_commit": os.environ["GITHUB_SHA"],
+              "upstream_ort_ref": os.environ["ORT_REF"],
+              "upstream_ort_version": os.environ["ORT_VERSION"],
+              "upstream_ort_commit": os.environ["ORT_COMMIT"],
+              "ort_telemetry": os.environ["ORT_TELEMETRY"],
+              "build_env_sha256": os.environ["BUILD_ENV_SHA256"],
+              "package_channel": os.environ["PACKAGE_CHANNEL"],
+              "package_revision": int(os.environ["PACKAGE_REVISION"]),
+              "package_label": os.environ["PACKAGE_LABEL"],
+              "release_scope": "all",
+              "github_repository": os.environ["GITHUB_REPOSITORY"],
+              "github_build_run_id": int(os.environ["GITHUB_RUN_ID"]),
+              "github_build_run_attempt": int(os.environ["GITHUB_RUN_ATTEMPT"]),
+              "github_workflow_ref": os.environ["GITHUB_WORKFLOW_REF"],
+              "release_notes": release_notes,
+          }
+          with open("release-assets/build-provenance.json", "w", encoding="utf-8") as provenance_file:
+              json.dump(provenance, provenance_file, indent=2, sort_keys=True)
+              provenance_file.write("\n")
+          PY
+
+          (
+            cd release-assets
+            mapfile -t binaries < <(find . -maxdepth 1 -type f \
+              \( -name '*.aar' -o -name '*.tar.gz' -o -name '*.zip' \) | sort)
+            sha256sum "${binaries[@]}" > SHA256SUMS
+          )
+          bash scripts/verify-release-candidate.sh \
+            release-assets "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" "$GITHUB_SHA" \
+            >/dev/null
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -617,8 +676,8 @@ jobs:
           {
             echo "## $RELEASE_TAG candidate built"
             echo
-            echo "Download and validate this candidate with scripts/validate-device.py."
-            echo "Publish from main with build_run_id=$GITHUB_RUN_ID and the generated device-evidence JSON."
+            echo "Complete RELEASE-CHECKLIST.md before publishing."
+            echo "Publish from main with build_run_id=$GITHUB_RUN_ID."
             echo
             echo "Candidate artifacts expire after 14 days."
           } >> "$GITHUB_STEP_SUMMARY"

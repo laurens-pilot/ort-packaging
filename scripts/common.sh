@@ -14,25 +14,13 @@ set +a
 : "${ORT_COMMIT:?ORT_COMMIT must be the resolved upstream commit}"
 : "${PACKAGE_REVISION:?PACKAGE_REVISION must be a positive integer}"
 [[ "$ORT_VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] ||
-  {
-    printf 'error: invalid ORT_VERSION: %s\n' "$ORT_VERSION" >&2
-    exit 1
-  }
+  { printf 'error: invalid ORT_VERSION: %s\n' "$ORT_VERSION" >&2; exit 1; }
 [ "$ORT_REF" = "v$ORT_VERSION" ] ||
-  {
-    printf 'error: ORT_REF must be v%s; found %s\n' "$ORT_VERSION" "$ORT_REF" >&2
-    exit 1
-  }
+  { printf 'error: ORT_REF must be v%s; found %s\n' "$ORT_VERSION" "$ORT_REF" >&2; exit 1; }
 [[ "$ORT_COMMIT" =~ ^[0-9a-f]{40}$ ]] ||
-  {
-    printf 'error: invalid ORT_COMMIT: %s\n' "$ORT_COMMIT" >&2
-    exit 1
-  }
+  { printf 'error: invalid ORT_COMMIT: %s\n' "$ORT_COMMIT" >&2; exit 1; }
 [[ "$PACKAGE_REVISION" =~ ^[1-9][0-9]*$ ]] ||
-  {
-    printf 'error: invalid PACKAGE_REVISION: %s\n' "$PACKAGE_REVISION" >&2
-    exit 1
-  }
+  { printf 'error: invalid PACKAGE_REVISION: %s\n' "$PACKAGE_REVISION" >&2; exit 1; }
 export PACKAGE_CHANNEL=stable
 
 export ORT_SOURCE_DIR="${ORT_SOURCE_DIR:-$REPO_ROOT/onnxruntime}"
@@ -108,37 +96,19 @@ package_label() {
   printf 'r%s' "$PACKAGE_REVISION"
 }
 
-package_release_tag() {
-  printf 'ort-%s-%s' "$ORT_VERSION" "$(package_label)"
-}
-
-packaging_commit() {
-  git -C "$REPO_ROOT" rev-parse HEAD
-}
-
-ort_commit() {
-  if [ -n "${ORT_COMMIT_OVERRIDE:-}" ]; then
-    printf '%s\n' "$ORT_COMMIT_OVERRIDE"
-    return
-  fi
-  printf '%s\n' "$ORT_COMMIT"
-}
-
 write_manifest() {
   local path="$1"
   local target="$2"
   local linkage="$3"
   local providers="$4"
-  local ort_commit_value packaging_commit_value
-  ort_commit_value="$(ort_commit)" || die "unable to resolve the ONNX Runtime commit"
-  packaging_commit_value="$(packaging_commit)" || die "unable to resolve the packaging commit"
-  [[ "$ort_commit_value" =~ ^[0-9a-f]{40}$ ]] || die "invalid ONNX Runtime commit: $ort_commit_value"
+  local packaging_commit_value
+  packaging_commit_value="$(git -C "$REPO_ROOT" rev-parse HEAD)" || die "unable to resolve the packaging commit"
   [[ "$packaging_commit_value" =~ ^[0-9a-f]{40}$ ]] || die "invalid packaging commit: $packaging_commit_value"
   {
     printf 'ORT_REF=%s\n' "$ORT_REF"
     printf 'ORT_VERSION=%s\n' "$ORT_VERSION"
     printf 'ORT_TELEMETRY=%s\n' "$ORT_TELEMETRY"
-    printf 'ORT_COMMIT=%s\n' "$ort_commit_value"
+    printf 'ORT_COMMIT=%s\n' "$ORT_COMMIT"
     printf 'PACKAGING_COMMIT=%s\n' "$packaging_commit_value"
     printf 'PACKAGE_CHANNEL=%s\n' "$PACKAGE_CHANNEL"
     printf 'PACKAGE_REVISION=%s\n' "$PACKAGE_REVISION"
@@ -152,5 +122,26 @@ write_manifest() {
 }
 
 prepare_ort_source() {
-  python3 "$REPO_ROOT/scripts/prepare-source.py" "${1:-all}"
+  require_dir "$ORT_SOURCE_DIR/.git"
+  local actual_commit
+  actual_commit="$(git -C "$ORT_SOURCE_DIR" rev-parse HEAD)"
+  [ "$actual_commit" = "$ORT_COMMIT" ] ||
+    die "expected ORT source at $ORT_COMMIT, found $actual_commit"
+
+  local patch
+  for patch in "$REPO_ROOT"/patches/*.patch; do
+    if [ "${patch##*/}" = onnxruntime-kleidiai-unused-kernel-name.patch ]; then
+      local kernel_source="$ORT_SOURCE_DIR/onnxruntime/core/mlas/lib/kleidiai/halfgemm_kleidiai.cpp"
+      if [ ! -f "$kernel_source" ] || ! grep -Fq Sve2p1HalfGemmKernelName "$kernel_source"; then
+        log "$(basename "$patch") is not needed for $ORT_REF"
+        continue
+      fi
+    fi
+    if git -C "$ORT_SOURCE_DIR" apply --reverse --check "$patch" >/dev/null 2>&1; then
+      log "$(basename "$patch") already applied"
+    else
+      git -C "$ORT_SOURCE_DIR" apply --check "$patch"
+      git -C "$ORT_SOURCE_DIR" apply "$patch"
+    fi
+  done
 }

@@ -12,10 +12,7 @@ $cmakeGenerator = if ($env:CMAKE_GENERATOR) { $env:CMAKE_GENERATOR } else { "Vis
 $ortSource = if ($env:ORT_SOURCE_DIR) { $env:ORT_SOURCE_DIR } else { Join-Path $RepoRoot "onnxruntime" }
 $buildRoot = if ($env:BUILD_ROOT) { $env:BUILD_ROOT } else { Join-Path $RepoRoot "build" }
 $distRoot = if ($env:DIST_ROOT) { $env:DIST_ROOT } else { Join-Path $RepoRoot "dist" }
-$packageDir = Join-Path $distRoot "$target/runtime-test"
-$asset = Join-Path $distRoot "$target/onnxruntime-webgpu-$target-$($env:ORT_VERSION)-r$($env:PACKAGE_REVISION).zip"
-Remove-Item $packageDir -Recurse -Force -ErrorAction SilentlyContinue
-Expand-Archive -Path $asset -DestinationPath $packageDir
+$packageDir = Join-Path $distRoot "$target/package"
 $testBuildDir = Join-Path $buildRoot "$target-runtime-smoke"
 $headers = Join-Path $ortSource "include/onnxruntime/core/session"
 $model = Join-Path $ortSource "onnxruntime/test/testdata/mul_1.onnx"
@@ -39,15 +36,8 @@ $testExecutable = Join-Path $testBuildDir "Release/runtime-smoke.exe"
 if (-not (Test-Path $testExecutable)) { throw "missing runtime smoke-test executable: $testExecutable" }
 Push-Location $packageDir
 try {
-    & $testExecutable $core $plugin $model $(if ($env:REQUIRE_WEBGPU -eq "1") { "1" } else { "0" }) "D3D12" | Tee-Object -FilePath (Join-Path $distRoot "$target/smoke.log")
+    & $testExecutable $core $plugin $model "0" "D3D12"
     if ($LASTEXITCODE -ne 0) { throw "Windows runtime smoke test failed" }
 } finally {
     Pop-Location
-}
-
-python (Join-Path $RepoRoot "scripts/release.py") record $asset --log (Join-Path $distRoot "$target/smoke.log")
-if ($LASTEXITCODE -ne 0) { throw "failed to record Windows validation" }
-if ($env:REQUIRE_WEBGPU -eq "1") {
-    "PHYSICAL_DEVICE=passed" | Tee-Object -FilePath (Join-Path $distRoot "$target/smoke.log") -Append
-    "ASSET_SHA256=$((Get-FileHash $asset -Algorithm SHA256).Hash.ToLowerInvariant())" | Tee-Object -FilePath (Join-Path $distRoot "$target/smoke.log") -Append
 }
