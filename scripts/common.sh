@@ -96,37 +96,19 @@ package_label() {
   printf 'r%s' "$PACKAGE_REVISION"
 }
 
-package_release_tag() {
-  printf 'ort-%s-%s' "$ORT_VERSION" "$(package_label)"
-}
-
-packaging_commit() {
-  git -C "$REPO_ROOT" rev-parse HEAD
-}
-
-ort_commit() {
-  if [ -n "${ORT_COMMIT_OVERRIDE:-}" ]; then
-    printf '%s\n' "$ORT_COMMIT_OVERRIDE"
-    return
-  fi
-  printf '%s\n' "$ORT_COMMIT"
-}
-
 write_manifest() {
   local path="$1"
   local target="$2"
   local linkage="$3"
   local providers="$4"
-  local ort_commit_value packaging_commit_value
-  ort_commit_value="$(ort_commit)" || die "unable to resolve the ONNX Runtime commit"
-  packaging_commit_value="$(packaging_commit)" || die "unable to resolve the packaging commit"
-  [[ "$ort_commit_value" =~ ^[0-9a-f]{40}$ ]] || die "invalid ONNX Runtime commit: $ort_commit_value"
+  local packaging_commit_value
+  packaging_commit_value="$(git -C "$REPO_ROOT" rev-parse HEAD)" || die "unable to resolve the packaging commit"
   [[ "$packaging_commit_value" =~ ^[0-9a-f]{40}$ ]] || die "invalid packaging commit: $packaging_commit_value"
   {
     printf 'ORT_REF=%s\n' "$ORT_REF"
     printf 'ORT_VERSION=%s\n' "$ORT_VERSION"
     printf 'ORT_TELEMETRY=%s\n' "$ORT_TELEMETRY"
-    printf 'ORT_COMMIT=%s\n' "$ort_commit_value"
+    printf 'ORT_COMMIT=%s\n' "$ORT_COMMIT"
     printf 'PACKAGING_COMMIT=%s\n' "$packaging_commit_value"
     printf 'PACKAGE_CHANNEL=%s\n' "$PACKAGE_CHANNEL"
     printf 'PACKAGE_REVISION=%s\n' "$PACKAGE_REVISION"
@@ -136,13 +118,6 @@ write_manifest() {
     printf 'WEBGPU_LINKAGE=%s\n' "$linkage"
     printf 'EXECUTION_PROVIDERS=%s\n' "$providers"
     printf 'BUILD_CONFIG=Release\n'
-    if [ -n "${REPACKAGE_SOURCE_TAG:-}" ]; then
-      [ -n "${REPACKAGE_SOURCE_ASSET:-}" ] || die "missing REPACKAGE_SOURCE_ASSET"
-      [ -n "${REPACKAGE_SOURCE_SHA256:-}" ] || die "missing REPACKAGE_SOURCE_SHA256"
-      printf 'REPACKAGE_SOURCE_TAG=%s\n' "$REPACKAGE_SOURCE_TAG"
-      printf 'REPACKAGE_SOURCE_ASSET=%s\n' "$REPACKAGE_SOURCE_ASSET"
-      printf 'REPACKAGE_SOURCE_SHA256=%s\n' "$REPACKAGE_SOURCE_SHA256"
-    fi
   } >"$path"
 }
 

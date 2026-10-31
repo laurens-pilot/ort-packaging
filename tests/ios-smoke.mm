@@ -1,8 +1,8 @@
 #import <Foundation/Foundation.h>
 
 #include "onnxruntime_cxx_api.h"
+#include "smoke-values.h"
 
-#include <cmath>
 #include <cstdint>
 #include <iostream>
 #include <stdexcept>
@@ -27,22 +27,23 @@ void RunMul(const Ort::Env& env, const char* model_path, Ort::SessionOptions& se
   std::vector<float> input{1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f};
   const std::vector<int64_t> input_shape{3, 2};
   Ort::MemoryInfo memory_info = Ort::MemoryInfo::CreateCpu(OrtDeviceAllocator, OrtMemTypeDefault);
-  Ort::Value input_tensor = Ort::Value::CreateTensor<float>(
-      memory_info, input.data(), input.size(), input_shape.data(), input_shape.size());
+  Ort::Value input_tensor = Ort::Value::CreateTensor<float>(memory_info, input.data(), input.size(),
+                                                            input_shape.data(), input_shape.size());
 
   const char* input_names[] = {"X"};
   const char* output_names[] = {"Y"};
-  auto outputs = session.Run(Ort::RunOptions{nullptr}, input_names, &input_tensor, 1, output_names, 1);
+  auto outputs =
+      session.Run(Ort::RunOptions{nullptr}, input_names, &input_tensor, 1, output_names, 1);
   if (outputs.size() != 1 || !outputs[0].IsTensor()) {
     throw std::runtime_error("Mul smoke test did not return one tensor");
   }
+  if (outputs[0].GetTensorTypeAndShapeInfo().GetShape() != input_shape) {
+    throw std::runtime_error("Mul smoke test returned the wrong shape");
+  }
 
-  const float expected[] = {1.0f, 4.0f, 9.0f, 16.0f, 25.0f, 36.0f};
   const float* actual = outputs[0].GetTensorData<float>();
-  for (size_t i = 0; i < input.size(); ++i) {
-    if (std::fabs(actual[i] - expected[i]) > 1e-5f) {
-      throw std::runtime_error("Mul smoke test returned an incorrect value at index " + std::to_string(i));
-    }
+  if (!ValidMulOutput(actual, outputs[0].GetTensorTypeAndShapeInfo().GetElementCount())) {
+    throw std::runtime_error("Mul smoke test returned incorrect or non-finite values");
   }
 }
 
@@ -64,8 +65,9 @@ int main() {
       }
       {
         Ort::SessionOptions coreml_options;
-        CheckStatus(Ort::GetApi().SessionOptionsAppendExecutionProvider(
-            coreml_options, "CoreML", nullptr, nullptr, 0));
+        coreml_options.AddConfigEntry("session.disable_cpu_ep_fallback", "1");
+        CheckStatus(Ort::GetApi().SessionOptionsAppendExecutionProvider(coreml_options, "CoreML",
+                                                                        nullptr, nullptr, 0));
         RunMul(env, model_path.UTF8String, coreml_options);
         std::cout << "COREML_INFERENCE=passed\n";
       }

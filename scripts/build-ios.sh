@@ -107,7 +107,8 @@ done < <(find "$xcframework" -type f -name onnxruntime -print0)
 [ "${#framework_binaries[@]}" -eq 2 ] || die "expected two iOS framework binaries"
 for binary in "${framework_binaries[@]}"; do
   strip -S "$binary"
-  if otool -l "$binary" | grep -Fq 'segname __DWARF'; then
+  load_commands="$(otool -l "$binary")"
+  if grep -Fq 'segname __DWARF' <<<"$load_commands"; then
     die "iOS framework still contains DWARF sections after stripping: $binary"
   fi
 
@@ -130,11 +131,13 @@ for binary in "${framework_binaries[@]}"; do
   mkdir -p "$(dirname "$static_library")"
   lipo "$binary" -thin arm64 -output "$static_library"
 
-  lipo -info "$static_library" | grep -Fq 'Non-fat file' ||
+  lipo_info="$(lipo -info "$static_library")"
+  grep -Fq 'Non-fat file' <<<"$lipo_info" ||
     die "pre-thinned iOS archive is still a universal binary: $static_library"
   [ "$(lipo -archs "$static_library")" = arm64 ] ||
     die "unexpected pre-thinned iOS archive architecture: $static_library"
-  if otool -l "$static_library" | grep -Fq 'segname __DWARF'; then
+  static_load_commands="$(otool -l "$static_library")"
+  if grep -Fq 'segname __DWARF' <<<"$static_load_commands"; then
     die "pre-thinned iOS archive contains DWARF sections: $static_library"
   fi
 

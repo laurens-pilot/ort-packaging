@@ -1,6 +1,6 @@
 # Custom ONNX Runtime Packaging
 
-Builds pinned, self-contained ONNX Runtime runtime packages for Android, iOS, Linux, macOS, and Windows without consuming Microsoft-provided ONNX Runtime binaries. Shared toolchain and platform policy lives in [`build.env`](build.env); each release build resolves its requested upstream tag to an immutable commit.
+Builds pinned, self-contained ONNX Runtime runtime packages for Android, iOS, Linux, macOS, and Windows without consuming Microsoft-provided ONNX Runtime binaries. Platform policy lives in [`build.env`](build.env), and pinned build tools in [`config/toolchains.json`](config/toolchains.json). Each release build resolves its requested upstream tag to an immutable commit.
 
 This repository's release tags describe a **custom packaging** of upstream ONNX Runtime, not an upstream Microsoft release. Stable package revisions are named `ort-<upstream-version>-r<revision>`. See [Releases](https://github.com/ente/ort-packaging/releases) for available versions and assets.
 
@@ -15,8 +15,12 @@ Prerequisites:
 
 ### 1. Build a release candidate
 
+To check an upgrade before merging, select **Mode: trial** and the affected platform or all platforms on your branch. Trials use the release build scripts, may reuse an existing revision and never assemble a publishable candidate. Release candidates require **Mode: release**, **Platform: all** and **Branch: main**.
+
 Open [Build release candidate](https://github.com/ente/ort-packaging/actions/workflows/build.yml), select **Run workflow**, and use:
 
+- **Mode:** `release`
+- **Platform:** `all`
 - **Branch:** `main`
 - **ORT version:** the stable upstream version without a `v` prefix, such as `1.28.1`
 - **Package revision:** `1` for the first package of that ORT version; use the next integer only to correct the packaging. Revisions must be sequential.
@@ -35,7 +39,7 @@ The workflow verifies the upstream release, resolves its tag to a commit, applie
 
 ### 2. Complete physical-device validation
 
-Before publishing, test Android WebGPU on representative supported physical devices and validate the iOS device slice and vendor-GPU behavior. Hosted CI validates package structure and runtime inference, but it cannot replace these device checks.
+Before publishing, check any Windows GPU inference skipped by CI, test Android WebGPU on representative supported physical devices and validate the iOS device slice and vendor-GPU behavior. Hosted CI validates package structure and runtime inference, but it cannot replace these device checks.
 
 ### 3. Publish the candidate
 
@@ -92,10 +96,10 @@ For Linux and Windows, register the shared WebGPU plugin and select an EP device
 ## Repository layout
 
 - `build.env`: shared toolchain, deployment-target, ABI, and telemetry policy
-- `config/`: Android and iOS build configurations
+- `config/`: platform build configurations and checksum-pinned CMake/vcpkg downloads
 - `scripts/`: workflow implementation helpers for platform builds, packaging, and packaged-runtime smoke tests
 - `patches/`: reviewable upstream compatibility patches; see [`PATCHES.md`](PATCHES.md)
-- `tests/`: portable packaged-runtime inference smoke tests
+- `tests/`: portable packaged-runtime inference smoke tests and release-script regression tests
 - [`RELEASE-CHECKLIST.md`](RELEASE-CHECKLIST.md): required stable-release promotion steps
 - `.github/workflows/build.yml`: version-driven native build and release-candidate assembly
 - `.github/workflows/publish.yml`: immutable publication of one successful build run
@@ -116,7 +120,7 @@ Always pin a release tag and verify its checksum sidecar downstream.
 
 ## Validation scope
 
-CI verifies package structure, native architectures, required exports, Android JNI contents, checksums, provenance metadata, and packaged runtime loading. It runs CPU and WebGPU inference on native Linux and Windows x64/ARM64 runners, using Mesa's software Vulkan driver on Linux and D3D12 on Windows. It runs CPU and CoreML inference on native macOS x64/ARM64 runners and in an ARM64 iOS Simulator, plus packaged CPU inference in an Android x86_64 emulator.
+CI verifies package structure, native architectures, required exports, Android JNI contents, checksums, provenance metadata, and packaged runtime loading. It requires CPU and WebGPU inference on Linux x64/ARM64 using Mesa's software Vulkan driver. Windows requires CPU inference and WebGPU plugin registration; D3D12 inference may be skipped when the runner has no GPU device, as reported in the job log. It requires CPU and CoreML inference without CPU fallback on macOS x64/ARM64 and in an ARM64 iOS Simulator, plus packaged CPU inference in an Android x86_64 emulator. Numeric checks reject NaN and infinity.
 
 Hosted Android emulators cannot exercise WebGPU without a host GPU. Android WebGPU and Android ARM device ABIs require representative physical-device validation before a stable release; iOS device-slice and vendor-GPU performance validation are also downstream release criteria. Smoke tests prove runtime loading and basic provider inference, not application-specific operator coverage or performance.
 

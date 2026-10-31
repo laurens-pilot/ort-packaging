@@ -19,9 +19,9 @@ build_commit="$4"
 
 provenance="$candidate_dir/build-provenance.json"
 checksums="$candidate_dir/SHA256SUMS"
-[ -f "$provenance" ] || die "missing build provenance"
-[ -f "$checksums" ] || die "missing SHA256SUMS"
-[ "$(find "$candidate_dir" -maxdepth 1 -type f | wc -l | tr -d '[:space:]')" -eq 35 ] ||
+[[ -f "$provenance" && ! -L "$provenance" ]] || die "missing build provenance"
+[[ -f "$checksums" && ! -L "$checksums" ]] || die "missing SHA256SUMS"
+[ "$(find "$candidate_dir" -mindepth 1 -maxdepth 1 | wc -l | tr -d '[:space:]')" -eq 35 ] ||
   die "release candidate must contain exactly 35 files"
 
 jq --exit-status \
@@ -79,24 +79,39 @@ for asset_name in "${expected_assets[@]}"; do
   asset="$candidate_dir/$asset_name"
   checksum="$asset.sha256"
   manifest="$asset.manifest.env"
-  [ -f "$asset" ] || die "missing release asset: $asset_name"
-  [ -f "$checksum" ] || die "missing release checksum: $asset_name.sha256"
-  [ -f "$manifest" ] || die "missing release manifest: $asset_name.manifest.env"
+  [[ -f "$asset" && ! -L "$asset" ]] || die "missing release asset: $asset_name"
+  [[ -f "$checksum" && ! -L "$checksum" ]] || die "missing release checksum: $asset_name.sha256"
+  [[ -f "$manifest" && ! -L "$manifest" ]] || die "missing release manifest: $asset_name.manifest.env"
 
   expected="$(tr -d '[:space:]' <"$checksum")"
   [[ "$expected" =~ ^[0-9a-f]{64}$ ]] || die "invalid checksum: $asset_name.sha256"
   actual="$(sha256sum "$asset" | awk '{ print $1 }')"
   [ "$actual" = "$expected" ] || die "checksum mismatch: $asset_name"
   grep -Fqx "$expected  ./$asset_name" "$checksums" || die "SHA256SUMS is missing $asset_name"
-  grep -Fqx "ORT_REF=$ort_ref" "$manifest" || die "ORT_REF mismatch: $asset_name"
-  grep -Fqx "ORT_VERSION=$ort_version" "$manifest" || die "ORT_VERSION mismatch: $asset_name"
-  grep -Fqx "ORT_COMMIT=$ort_commit" "$manifest" || die "ORT_COMMIT mismatch: $asset_name"
-  grep -Fqx 'ORT_TELEMETRY=disabled' "$manifest" || die "telemetry mismatch: $asset_name"
-  grep -Fqx "PACKAGING_COMMIT=$build_commit" "$manifest" || die "packaging commit mismatch: $asset_name"
-  grep -Fqx 'PACKAGE_CHANNEL=stable' "$manifest" || die "package channel mismatch: $asset_name"
-  grep -Fqx "PACKAGE_REVISION=$package_revision" "$manifest" || die "package revision mismatch: $asset_name"
-  grep -Fqx "PACKAGE_LABEL=$package_label" "$manifest" || die "package label mismatch: $asset_name"
-  grep -Fqx 'ORT_CORE_INCLUDED=1' "$manifest" || die "missing ORT core marker: $asset_name"
+  target="${asset_name#onnxruntime-}"
+  target="${target#*-}"
+  target="${target%-"$ort_version"-"$package_label".*}"
+  [ "$target" != android ] || target=android-universal
+  case "$asset_name" in
+    onnxruntime-coreml-*)
+      linkage=disabled
+      providers=CoreML,CPU
+      ;;
+    onnxruntime-webgpu-android-*)
+      linkage=built-in
+      providers=WebGPU,XNNPACK,CPU
+      ;;
+    *)
+      linkage=plugin-shared
+      providers=WebGPU,CPU
+      ;;
+  esac
+  diff -u <(printf '%s\n' \
+    "ORT_REF=$ort_ref" "ORT_VERSION=$ort_version" "ORT_COMMIT=$ort_commit" \
+    "PACKAGING_COMMIT=$build_commit" 'ORT_TELEMETRY=disabled' 'PACKAGE_CHANNEL=stable' \
+    "PACKAGE_REVISION=$package_revision" "PACKAGE_LABEL=$package_label" 'ORT_CORE_INCLUDED=1' \
+    "TARGET=$target" "WEBGPU_LINKAGE=$linkage" "EXECUTION_PROVIDERS=$providers" 'BUILD_CONFIG=Release' | sort) \
+    <(sort "$manifest") >&2 || die "manifest mismatch: $asset_name"
 done
 
 [ "$(wc -l <"$checksums" | tr -d '[:space:]')" -eq 11 ] || die "SHA256SUMS must contain 11 entries"
