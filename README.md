@@ -1,6 +1,6 @@
 # Custom ONNX Runtime Packaging
 
-Builds pinned, self-contained ONNX Runtime runtime packages for Android, iOS, Linux, macOS, and Windows without consuming Microsoft-provided ONNX Runtime binaries. Shared toolchain and platform policy lives in [`build.env`](build.env); each release build resolves its requested upstream tag to an immutable commit.
+Builds pinned, self-contained ONNX Runtime runtime packages for Android, iOS, Linux, macOS, and Windows without consuming Microsoft-provided ONNX Runtime binaries. Platform policy lives in [`build.env`](build.env), and pinned build tools in [`config/toolchains.json`](config/toolchains.json). Each release build resolves its requested upstream tag to an immutable commit.
 
 This repository's release tags describe a **custom packaging** of upstream ONNX Runtime, not an upstream Microsoft release. Stable package revisions are named `ort-<upstream-version>-r<revision>`. See [Releases](https://github.com/ente/ort-packaging/releases) for available versions and assets.
 

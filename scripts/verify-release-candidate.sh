@@ -19,8 +19,8 @@ build_commit="$4"
 
 provenance="$candidate_dir/build-provenance.json"
 checksums="$candidate_dir/SHA256SUMS"
-[ -f "$provenance" ] && [ ! -L "$provenance" ] || die "missing build provenance"
-[ -f "$checksums" ] && [ ! -L "$checksums" ] || die "missing SHA256SUMS"
+[[ -f "$provenance" && ! -L "$provenance" ]] || die "missing build provenance"
+[[ -f "$checksums" && ! -L "$checksums" ]] || die "missing SHA256SUMS"
 [ "$(find "$candidate_dir" -mindepth 1 -maxdepth 1 | wc -l | tr -d '[:space:]')" -eq 35 ] ||
   die "release candidate must contain exactly 35 files"
 
@@ -79,9 +79,9 @@ for asset_name in "${expected_assets[@]}"; do
   asset="$candidate_dir/$asset_name"
   checksum="$asset.sha256"
   manifest="$asset.manifest.env"
-  [ -f "$asset" ] && [ ! -L "$asset" ] || die "missing release asset: $asset_name"
-  [ -f "$checksum" ] && [ ! -L "$checksum" ] || die "missing release checksum: $asset_name.sha256"
-  [ -f "$manifest" ] && [ ! -L "$manifest" ] || die "missing release manifest: $asset_name.manifest.env"
+  [[ -f "$asset" && ! -L "$asset" ]] || die "missing release asset: $asset_name"
+  [[ -f "$checksum" && ! -L "$checksum" ]] || die "missing release checksum: $asset_name.sha256"
+  [[ -f "$manifest" && ! -L "$manifest" ]] || die "missing release manifest: $asset_name.manifest.env"
 
   expected="$(tr -d '[:space:]' <"$checksum")"
   [[ "$expected" =~ ^[0-9a-f]{64}$ ]] || die "invalid checksum: $asset_name.sha256"
