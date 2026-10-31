@@ -12,6 +12,7 @@ Before publishing:
 - [ ] **Assemble release candidate** succeeded for the intended ORT version and package revision.
 - [ ] Android WebGPU passed on representative supported physical devices.
 - [ ] The iOS device slice and vendor-GPU behavior were validated.
+- [ ] Any Windows GPU inference skipped by CI passed on a GPU-capable Windows machine.
 - [ ] The candidate build is less than 14 days old.
 
 After publishing:

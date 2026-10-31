@@ -111,7 +111,7 @@ for asset_name in "${expected_assets[@]}"; do
     "PACKAGING_COMMIT=$build_commit" 'ORT_TELEMETRY=disabled' 'PACKAGE_CHANNEL=stable' \
     "PACKAGE_REVISION=$package_revision" "PACKAGE_LABEL=$package_label" 'ORT_CORE_INCLUDED=1' \
     "TARGET=$target" "WEBGPU_LINKAGE=$linkage" "EXECUTION_PROVIDERS=$providers" 'BUILD_CONFIG=Release' | sort) \
-    <(sort "$manifest") || die "manifest mismatch: $asset_name"
+    <(sort "$manifest") >&2 || die "manifest mismatch: $asset_name"
 done
 
 [ "$(wc -l <"$checksums" | tr -d '[:space:]')" -eq 11 ] || die "SHA256SUMS must contain 11 entries"

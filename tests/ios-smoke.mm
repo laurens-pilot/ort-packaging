@@ -3,7 +3,6 @@
 #include "onnxruntime_cxx_api.h"
 #include "smoke-values.h"
 
-#include <cmath>
 #include <cstdint>
 #include <iostream>
 #include <stdexcept>

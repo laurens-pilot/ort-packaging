@@ -1,7 +1,6 @@
 // Loads the packaged ONNX Runtime dynamically so the smoke test does not hide
 // missing runtime dependencies behind a link-time dependency.
 #define ORT_API_MANUAL_INIT
-#include <cmath>
 #include <cstdint>
 #include <cstdlib>
 #include <iostream>

@@ -1,10 +1,12 @@
 import hashlib
+import http.client
 import importlib.util
 import io
 import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 import zipfile
@@ -129,6 +131,7 @@ class CandidateTests(unittest.TestCase):
             text=True,
         )
         self.assertEqual(result.returncode == 0, success, result.stdout + result.stderr)
+        return result
 
     def test_valid_candidate_and_manifest_tampering(self):
         self.verify(True)
@@ -142,7 +145,9 @@ class CandidateTests(unittest.TestCase):
                     )
                     + "\n"
                 )
-                self.verify(False)
+                result = self.verify(False)
+                self.assertEqual(result.stdout, "")
+                self.assertIn(f"+{field}=wrong", result.stderr)
             file.write_text(original + "TARGET=duplicate\n")
             self.verify(False)
             file.write_text(original)
@@ -161,6 +166,24 @@ class CandidateTests(unittest.TestCase):
         )
         (self.candidate / "build-provenance.json").write_text(json.dumps(self.provenance))
         self.verify(False)
+
+    def test_linked_candidate_files_are_rejected(self):
+        asset = next(self.candidate.glob("*.aar")).name
+        for name in (
+            "build-provenance.json",
+            "SHA256SUMS",
+            asset,
+            asset + ".sha256",
+            asset + ".manifest.env",
+        ):
+            file = self.candidate / name
+            target = self.work / name
+            file.rename(target)
+            file.symlink_to(target)
+            self.verify(False)
+            file.unlink()
+            target.rename(file)
+        self.verify(True)
 
 
 class ToolTests(unittest.TestCase):
@@ -188,7 +211,7 @@ class ToolTests(unittest.TestCase):
                 "hosts": {
                     "windows-arm64": {"cmake": package, "generator": "Visual Studio 18 2026"}
                 },
-                "vcpkg": package,
+                "vcpkg": dict(package),
             }
             config_file = root / "config/toolchains.json"
             config_file.write_text(json.dumps(config))
@@ -216,4 +239,69 @@ class ToolTests(unittest.TestCase):
                 config_file.write_text(json.dumps(config))
                 with self.assertRaisesRegex(ValueError, "SHA512 mismatch"):
                     module.install("windows-arm64")
+                self.assertTrue((root / "ort-tools/cmake/bin/cmake").is_file())
                 bootstrap.assert_not_called()
+
+    def test_download_retries_transient_failures(self):
+        spec = importlib.util.spec_from_file_location(
+            "setup_tools", ROOT / "scripts/setup-tools.py"
+        )
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        with tempfile.TemporaryDirectory() as folder:
+            archive = Path(folder) / "archive"
+            with (
+                patch.object(
+                    module.urllib.request,
+                    "urlopen",
+                    side_effect=[
+                        OSError("reset"),
+                        http.client.IncompleteRead(b"partial"),
+                        io.BytesIO(b"complete"),
+                    ],
+                ),
+                patch.object(module.time, "sleep"),
+            ):
+                module.download("https://fixture.invalid/archive", archive)
+            self.assertEqual(archive.read_bytes(), b"complete")
+            with (
+                patch.object(module.urllib.request, "urlopen", side_effect=OSError("down")) as call,
+                patch.object(module.time, "sleep"),
+            ):
+                with self.assertRaisesRegex(OSError, "down"):
+                    module.download("https://fixture.invalid/archive", archive)
+            self.assertEqual(call.call_count, 3)
+
+
+class SourceTests(unittest.TestCase):
+    def test_source_only_skips_release_checks_but_keeps_upstream_checks(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "gh").write_text(
+                "#!"
+                + sys.executable
+                + "\nimport json, os, sys\nendpoint = sys.argv[2]\nif endpoint.startswith('repos/microsoft/'):\n print(json.dumps({'tag_name': 'v1.31.0', 'draft': False, 'prerelease': os.environ.get('PRERELEASE') == '1'}))\nelse:\n sys.exit(0)\n"
+            )
+            (root / "git").write_text(
+                "#!/usr/bin/env bash\nprintf '%s\\t%s\\n' bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb refs/tags/v1.31.0\n"
+            )
+            (root / "gh").chmod(0o755)
+            (root / "git").chmod(0o755)
+            env = {
+                **os.environ,
+                "PATH": str(root) + os.pathsep + os.environ["PATH"],
+                "GITHUB_REPOSITORY": "ente/ort-packaging",
+            }
+            command = ["bash", str(ROOT / "scripts/resolve-release.sh"), "1.31.0", "1"]
+            normal = subprocess.run(command, env=env, capture_output=True, text=True)
+            self.assertNotEqual(normal.returncode, 0)
+            self.assertIn("already exists", normal.stderr)
+            source = subprocess.run(
+                [*command, "--source-only"], env=env, capture_output=True, text=True
+            )
+            self.assertEqual(source.returncode, 0, source.stderr)
+            self.assertIn("ort_commit=" + "b" * 40, source.stdout)
+            rejected = subprocess.run(
+                [*command, "--source-only"], env={**env, "PRERELEASE": "1"}, capture_output=True
+            )
+            self.assertNotEqual(rejected.returncode, 0)

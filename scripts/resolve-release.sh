@@ -59,7 +59,6 @@ if [ "${3:-}" != --source-only ]; then
     gh api "repos/$GITHUB_REPOSITORY/releases/tags/$previous_tag" \
       --jq 'if .draft == false and .immutable == true then empty else error("previous release is not published and immutable") end'
   fi
-
 fi
 
 build_env_sha256="$(sha256sum "$REPO_ROOT/build.env" | awk '{ print $1 }')"

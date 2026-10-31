@@ -97,11 +97,13 @@ fi
 
 while IFS= read -r -d '' library; do
   "$ndk_strip" --strip-unneeded "$library"
-  if "$ndk_readelf" --sections "$library" | grep -Eq '] \.(debug|zdebug|gnu_debuglink|symtab)([[:space:]]|_)'; then
+  sections="$("$ndk_readelf" --sections "$library")"
+  if grep -Eq '] \.(debug|zdebug|gnu_debuglink|symtab)([[:space:]]|_)' <<<"$sections"; then
     die "Android runtime still contains debug or symbol-table sections after stripping: $library"
   fi
 
-  stack_header="$("$ndk_readelf" --program-headers "$library" | awk '$1 == "GNU_STACK" { print; exit }')"
+  program_headers="$("$ndk_readelf" --program-headers "$library")"
+  stack_header="$(awk '$1 == "GNU_STACK" { print; exit }' <<<"$program_headers")"
   [ -n "$stack_header" ] || die "Android runtime has no GNU_STACK header: $library"
   [[ "$stack_header" != *E* ]] || die "Android runtime requests an executable stack: $library"
 done < <(find "$package_dir" -type f -name '*.so' -print0)
@@ -118,8 +120,9 @@ cp "$ORT_SOURCE_DIR/ThirdPartyNotices.txt" "$notice_dir/ThirdPartyNotices.txt"
 write_checksum "$asset"
 write_manifest "$asset.manifest.env" "android-$abi" "built-in" "WebGPU,XNNPACK,CPU"
 
-unzip -l "$asset" | grep -q "jni/$abi/libonnxruntime.so" || die "AAR is missing libonnxruntime.so for $abi"
-unzip -l "$asset" | grep -q "jni/$abi/libonnxruntime4j_jni.so" || die "AAR is missing JNI bridge for $abi"
+asset_listing="$(unzip -l "$asset")"
+grep -q "jni/$abi/libonnxruntime.so" <<<"$asset_listing" || die "AAR is missing libonnxruntime.so for $abi"
+grep -q "jni/$abi/libonnxruntime4j_jni.so" <<<"$asset_listing" || die "AAR is missing JNI bridge for $abi"
 cmp "$ORT_SOURCE_DIR/LICENSE" <(unzip -p "$asset" META-INF/ONNXRUNTIME-LICENSE) ||
   die "AAR has an invalid ONNX Runtime license"
 cmp "$ORT_SOURCE_DIR/ThirdPartyNotices.txt" <(unzip -p "$asset" META-INF/ThirdPartyNotices.txt) ||

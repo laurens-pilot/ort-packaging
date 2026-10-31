@@ -99,7 +99,7 @@ For Linux and Windows, register the shared WebGPU plugin and select an EP device
 - `config/`: platform build configurations and checksum-pinned CMake/vcpkg downloads
 - `scripts/`: workflow implementation helpers for platform builds, packaging, and packaged-runtime smoke tests
 - `patches/`: reviewable upstream compatibility patches; see [`PATCHES.md`](PATCHES.md)
-- `tests/`: portable packaged-runtime inference smoke tests
+- `tests/`: portable packaged-runtime inference smoke tests and release-script regression tests
 - [`RELEASE-CHECKLIST.md`](RELEASE-CHECKLIST.md): required stable-release promotion steps
 - `.github/workflows/build.yml`: version-driven native build and release-candidate assembly
 - `.github/workflows/publish.yml`: immutable publication of one successful build run

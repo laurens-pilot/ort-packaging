@@ -1,4 +1,5 @@
 import hashlib
+import http.client
 import json
 import os
 import shutil
@@ -6,9 +7,22 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import time
 import urllib.request
 import zipfile
 from pathlib import Path
+
+
+def download(url, destination):
+    for attempt in range(3):
+        try:
+            with urllib.request.urlopen(url, timeout=120) as response:
+                destination.write_bytes(response.read())
+            return
+        except (OSError, http.client.HTTPException):
+            if attempt == 2:
+                raise
+            time.sleep(2**attempt)
 
 
 def install(host):
@@ -21,8 +35,7 @@ def install(host):
         with tempfile.TemporaryDirectory(dir=tools) as folder:
             folder = Path(folder)
             archive = folder / "archive"
-            with urllib.request.urlopen(package["url"], timeout=120) as response:
-                archive.write_bytes(response.read())
+            download(package["url"], archive)
             if hashlib.sha512(archive.read_bytes()).hexdigest() != package["sha512"]:
                 raise ValueError(f"SHA512 mismatch: {package['url']}")
             unpacked = folder / "unpacked"
