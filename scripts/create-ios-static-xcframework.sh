@@ -36,7 +36,8 @@ for slice_name in ios-arm64 ios-arm64-simulator; do
   library="$static_root/$slice_name/libonnxruntime.a"
   [ "$(lipo -archs "$library")" = arm64 ] ||
     die "unexpected architecture in $library"
-  if otool -l "$library" | grep -Fq 'segname __DWARF'; then
+  load_commands="$(otool -l "$library")"
+  if grep -Fq 'segname __DWARF' <<<"$load_commands"; then
     die "static iOS archive contains DWARF sections: $library"
   fi
 
@@ -109,7 +110,8 @@ for slice_name in ios-arm64 ios-arm64-simulator; do
     die "xcodebuild changed the static archive for $slice_name"
 done
 
-if find "$output_xcframework" -type d -name '*.framework' | grep -q .; then
+framework_bundles="$(find "$output_xcframework" -type d -name '*.framework')"
+if [ -n "$framework_bundles" ]; then
   die "static-library XCFramework unexpectedly contains a framework bundle"
 fi
 

@@ -47,9 +47,10 @@ asset="$output_dir/onnxruntime-webgpu-android-$ORT_VERSION-$(package_label).aar"
 write_checksum "$asset"
 write_manifest "$asset.manifest.env" "android-universal" "built-in" "WebGPU,XNNPACK,CPU"
 
+asset_listing="$(unzip -l "$asset")"
 for abi in arm64-v8a armeabi-v7a x86_64; do
-  unzip -l "$asset" | grep -q "jni/$abi/libonnxruntime.so" || die "merged AAR is missing $abi"
+  grep -q "jni/$abi/libonnxruntime.so" <<<"$asset_listing" || die "merged AAR is missing $abi"
 done
-unzip -l "$asset" | grep -q 'META-INF/ONNXRUNTIME-LICENSE' || die "merged AAR is missing the ONNX Runtime license"
-unzip -l "$asset" | grep -q 'META-INF/ThirdPartyNotices.txt' || die "merged AAR is missing third-party notices"
+grep -q 'META-INF/ONNXRUNTIME-LICENSE' <<<"$asset_listing" || die "merged AAR is missing the ONNX Runtime license"
+grep -q 'META-INF/ThirdPartyNotices.txt' <<<"$asset_listing" || die "merged AAR is missing third-party notices"
 log "created $asset"

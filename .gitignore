@@ -3,4 +3,5 @@ dist/
 .build/
 .dist/
 onnxruntime/
+__pycache__/
 .DS_Store

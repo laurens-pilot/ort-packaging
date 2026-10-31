@@ -138,7 +138,8 @@ else
 fi
 
 if [[ "$target" == macos-* ]]; then
-  if find "$dist_dir/package" -type f -iname '*webgpu*' -print -quit | grep -q .; then
+  webgpu_file="$(find "$dist_dir/package" -type f -iname '*webgpu*' -print -quit)"
+  if [ -n "$webgpu_file" ]; then
     die "macOS package unexpectedly contains a WebGPU component"
   fi
 
@@ -146,11 +147,13 @@ if [[ "$target" == macos-* ]]; then
   [ "$expected_arch" != "x64" ] || expected_arch="x86_64"
   while IFS= read -r -d '' library; do
     strip -S "$library"
-    if otool -l "$library" | grep -Fq 'segname __DWARF'; then
+    load_commands="$(otool -l "$library")"
+    if grep -Fq 'segname __DWARF' <<<"$load_commands"; then
       die "macOS runtime still contains DWARF sections after stripping: $library"
     fi
     codesign --force --sign - "$library"
-    file "$library" | grep -q "$expected_arch" || die "unexpected macOS binary architecture: $library"
+    file_type="$(file "$library")"
+    grep -q "$expected_arch" <<<"$file_type" || die "unexpected macOS binary architecture: $library"
   done < <(find "$dist_dir/package" -type f -name '*.dylib' -print0)
 
   packaged_core="$dist_dir/package/$(basename "$core")"
@@ -166,7 +169,8 @@ if [[ "$target" == macos-* ]]; then
   fi
 
   while IFS= read -r -d '' library; do
-    actual_min="$(otool -l "$library" | awk '$1 == "minos" { print $2; exit }')"
+    load_commands="$(otool -l "$library")"
+    actual_min="$(awk '$1 == "minos" { print $2; exit }' <<<"$load_commands")"
     [ "$actual_min" = "$MACOS_MIN_VERSION" ] ||
       die "unexpected macOS deployment target for $library: expected $MACOS_MIN_VERSION, found ${actual_min:-unknown}"
   done < <(find "$dist_dir/package" -type f -name '*.dylib' -print0)
@@ -175,11 +179,13 @@ else
   require_cmd strip
   while IFS= read -r -d '' library; do
     strip --strip-unneeded "$library"
-    if readelf -W -S "$library" | grep -Eq '] \.(debug|zdebug|gnu_debuglink|symtab)([[:space:]]|_)'; then
+    sections="$(readelf -W -S "$library")"
+    if grep -Eq '] \.(debug|zdebug|gnu_debuglink|symtab)([[:space:]]|_)' <<<"$sections"; then
       die "Linux runtime still contains debug or symbol-table sections after stripping: $library"
     fi
 
-    stack_header="$(readelf -W -l "$library" | awk '$1 == "GNU_STACK" { print; exit }')"
+    program_headers="$(readelf -W -l "$library")"
+    stack_header="$(awk '$1 == "GNU_STACK" { print; exit }' <<<"$program_headers")"
     [ -n "$stack_header" ] || die "Linux runtime has no GNU_STACK header: $library"
     [[ "$stack_header" != *E* ]] || die "Linux runtime requests an executable stack: $library"
   done < <(find "$dist_dir/package" -type f -name '*.so*' -print0)
